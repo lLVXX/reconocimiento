@@ -1,0 +1,47 @@
+{% extends 'core/base.html' %}
+{% load static %}
+
+{% block content %}
+<h2>Gestionar Secciones</h2>
+
+<form method="post">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit" class="btn btn-primary">
+    {% if editar_id %}Actualizar{% else %}Crear{% endif %}
+  </button>
+</form>
+
+<hr>
+
+<h3>Secciones existentes</h3>
+{% if secciones %}
+<table class="table table-striped">
+  <thead>
+    <tr>
+      <th>Nombre</th>
+      <th>Asignatura</th>
+      <th>Carrera</th>
+      <th>Sede</th>
+      <th>Acciones</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in secciones %}
+    <tr>
+      <td>{{ s.nombre }}</td>
+      <td>{{ s.asignatura.nombre }}</td>
+      <td>{{ s.asignatura.carrera.nombre }}</td>
+      <td>{{ s.asignatura.carrera.sede.nombre }}</td>
+      <td>
+        <a href="?editar={{ s.id }}" class="btn btn-warning btn-sm">Editar</a>
+        <a href="?eliminar={{ s.id }}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro?')">Eliminar</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No hay secciones registradas.</p>
+{% endif %}
+{% endblock %}

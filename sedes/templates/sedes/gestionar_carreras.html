@@ -1,0 +1,66 @@
+{% extends 'core/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4">
+  <h2 class="mb-4">Gestión de Carreras</h2>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="row">
+    <div class="col-md-5">
+      <div class="card mb-4 shadow-sm">
+        <div class="card-body">
+          <form method="post">
+            {% csrf_token %}
+            {{ form.as_p }}
+            {% if editar_id %}
+              <input type="hidden" name="editar" value="{{ editar_id }}">
+            {% endif %}
+            <button class="btn btn-success w-100">
+              {% if editar_id %}Actualizar{% else %}Crear{% endif %}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-7">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <table class="table table-bordered">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Descripción</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for carrera in carreras %}
+              <tr>
+                <td>{{ carrera.nombre }}</td>
+                <td>{{ carrera.descripcion }}</td>
+                <td>
+                  <a href="?editar={{ carrera.id }}" class="btn btn-sm btn-warning">Editar</a>
+                  <a href="?eliminar={{ carrera.id }}" class="btn btn-sm btn-danger"
+                     onclick="return confirm('¿Eliminar carrera?')">Eliminar</a>
+                </td>
+              </tr>
+              {% empty %}
+              <tr>
+                <td colspan="3" class="text-center">No hay carreras registradas.</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

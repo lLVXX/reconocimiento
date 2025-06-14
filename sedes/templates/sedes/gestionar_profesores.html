@@ -1,0 +1,118 @@
+{% extends 'core/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4">Gestión de Profesores</h2>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <form method="POST" novalidate>
+        {% csrf_token %}
+        <div class="mb-3">
+            <label for="id_nombre" class="form-label">Nombre</label>
+            {{ form.nombre }}
+        </div>
+        <div class="mb-3">
+            <label for="id_apellido" class="form-label">Apellido</label>
+            {{ form.apellido }}
+        </div>
+        <div class="mb-3">
+            <label for="id_rut" class="form-label">RUT</label>
+            {{ form.rut }}
+        </div>
+        <div class="mb-3">
+            <label for="id_carrera" class="form-label">Carrera</label>
+            {{ form.carrera }}
+        </div>
+        <button type="submit" class="btn btn-success">Guardar</button>
+    </form>
+
+    <hr>
+
+    <h4>Lista de Profesores</h4>
+    <table class="table table-bordered table-striped mt-3">
+        <thead>
+            <tr>
+                <th>Nombre</th>
+                <th>Correo</th>
+                <th>RUT</th>
+                <th>Carrera</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for profesor in profesores %}
+                <tr>
+                    <td>{{ profesor.first_name }} {{ profesor.last_name }}</td>
+                    <td>{{ profesor.email }}</td>
+                    <td>{{ profesor.rut }}</td>
+                    <td>{{ profesor.carrera.nombre }}</td>
+                    <td>
+                        <a href="?editar={{ profesor.id }}" class="btn btn-warning btn-sm">Editar</a>
+                        <a href="?eliminar={{ profesor.id }}" class="btn btn-danger btn-sm"
+                           onclick="return confirm('¿Estás seguro que deseas eliminar este profesor?')">Eliminar</a>
+                    </td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="5">No hay profesores registrados.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+function formatearRut(rut) {
+    // Elimina todos los caracteres que no sean dígitos o la letra k/K
+    rut = rut.replace(/^0+|[^0-9kK]+/g, '').toUpperCase();
+
+    // Limita a 9 caracteres válidos (8 números + 1 dígito verificador)
+    rut = rut.slice(0, 9);
+
+    if (rut.length < 2) return rut;
+
+    const cuerpo = rut.slice(0, -1);
+    const dv = rut.slice(-1);
+
+    let cuerpoFormateado = '';
+    let count = 0;
+
+    for (let i = cuerpo.length - 1; i >= 0; i--) {
+        cuerpoFormateado = cuerpo[i] + cuerpoFormateado;
+        count++;
+        if (count === 3 && i !== 0) {
+            cuerpoFormateado = '.' + cuerpoFormateado;
+            count = 0;
+        }
+    }
+
+    return `${cuerpoFormateado}-${dv}`;
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    const rutInput = document.getElementById('rut-input');
+
+    if (rutInput) {
+        rutInput.addEventListener('input', function () {
+            const rawValue = rutInput.value;
+            const cleaned = rawValue.replace(/[^\dKk]/g, '').toUpperCase();
+
+            // Solo formatea si tiene máximo 9 caracteres válidos
+            if (cleaned.length <= 9) {
+                rutInput.value = formatearRut(cleaned);
+            } else {
+                // Truncar exceso
+                rutInput.value = formatearRut(cleaned.slice(0, 9));
+            }
+        });
+    }
+});
+</script>
+{% endblock %}
