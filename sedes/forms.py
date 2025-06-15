@@ -1,3 +1,5 @@
+#SEDES/FORMS.PY
+
 from django import forms
 from .models import Sede
 from .models import Carrera
@@ -30,21 +32,30 @@ class CarreraForm(forms.ModelForm):
 
 
 class AsignaturaForm(forms.ModelForm):
+    carrera = forms.ModelChoiceField(
+        queryset=Carrera.objects.none(),
+        widget=forms.Select(attrs={'class': 'form-control'})
+    )
     class Meta:
         model = Asignatura
         fields = ['nombre', 'carrera']
 
     def __init__(self, *args, **kwargs):
-        sede = kwargs.pop('sede', None)  # Extraemos el argumento 'sede'
+        sede = kwargs.pop('sede', None)
         super().__init__(*args, **kwargs)
         if sede:
             self.fields['carrera'].queryset = Carrera.objects.filter(sede=sede)
-        else:
-            self.fields['carrera'].queryset = Carrera.objects.none()
+
 
 ###############################################
 
+
+
 class SeccionForm(forms.ModelForm):
+    asignatura = forms.ModelChoiceField(
+        queryset=Asignatura.objects.none(),
+        widget=forms.Select(attrs={'class': 'form-control'})
+    )
     class Meta:
         model = Seccion
         fields = ['nombre', 'asignatura']
@@ -54,7 +65,3 @@ class SeccionForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if sede:
             self.fields['asignatura'].queryset = Asignatura.objects.filter(carrera__sede=sede)
-        else:
-            self.fields['asignatura'].queryset = Asignatura.objects.none()
-
-        

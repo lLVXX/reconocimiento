@@ -1,4 +1,4 @@
-# Standard Django imports
+# CORE/VIEWS.PY
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth import login, logout

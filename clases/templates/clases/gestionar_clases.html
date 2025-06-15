@@ -1,0 +1,135 @@
+{% extends 'core/base.html' %}
+{% load static %}
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4">Gestión de Clases</h2>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+
+    <form method="post" class="mb-4" id="claseForm">
+        {% csrf_token %}
+        <div class="row">
+            <div class="col-md-3 mb-3">
+                {{ form.carrera.label_tag }}
+                {{ form.carrera }}
+            </div>
+            <div class="col-md-3 mb-3">
+                {{ form.asignatura.label_tag }}
+                {{ form.asignatura }}
+            </div>
+            <div class="col-md-3 mb-3">
+                {{ form.seccion.label_tag }}
+                {{ form.seccion }}
+            </div>
+            <div class="col-md-3 mb-3">
+                {{ form.dia_semana.label_tag }}
+                {{ form.dia_semana }}
+            </div>
+            <div class="col-md-3 mb-3">
+                {{ form.bloque_horario.label_tag }}
+                {{ form.bloque_horario }}
+            </div>
+            <div class="col-md-3 mb-3">
+                {{ form.aula.label_tag }}
+                {{ form.aula }}
+            </div>
+            <div class="col-md-3 mb-3">
+                {{ form.profesor.label_tag }}
+                {{ form.profesor }}
+            </div>
+        </div>
+        <button type="submit" class="btn btn-success">Guardar Clase</button>
+
+
+        {% if form.errors %}
+  <div class="alert alert-danger">
+      <b>Errores en el formulario:</b>
+      <ul>
+      {% for field in form %}
+          {% for error in field.errors %}
+              <li><b>{{ field.label }}:</b> {{ error }}</li>
+          {% endfor %}
+      {% endfor %}
+      {% for error in form.non_field_errors %}
+          <li>{{ error }}</li>
+      {% endfor %}
+      </ul>
+  </div>
+{% endif %}
+
+
+
+    </form>
+
+    <h4>Listado de Clases</h4>
+    <table class="table table-bordered table-striped mt-3">
+        <thead class="table-dark">
+            <tr>
+                <th>Día</th>
+                <th>Bloque</th>
+                <th>Aula</th>
+                <th>Profesor</th>
+                <th>Sección / Asignatura / Carrera</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for clase in clases %}
+                <tr>
+                    <td>{{ clase.dia_semana }}</td>
+                    <td>{{ clase.bloque_horario }}</td>
+                    <td>{{ clase.aula.numero_sala }}</td>
+                    <td>{{ clase.profesor.get_full_name }}</td>
+                    <td>
+                        {{ clase.seccion.nombre }} - 
+                        {{ clase.seccion.asignatura.nombre }} - 
+                        {{ clase.seccion.asignatura.carrera.nombre }}
+                    </td>
+                    <td>
+                        <a href="?editar={{ clase.id }}" class="btn btn-warning btn-sm">Editar</a>
+                        <a href="?eliminar={{ clase.id }}" class="btn btn-danger btn-sm" onclick="return confirm('¿Eliminar esta clase?')">Eliminar</a>
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // --- Carrera -> Asignatura ---
+        document.getElementById('id_carrera').addEventListener('change', function() {
+            const carreraId = this.value;
+            fetch("{% url 'get_asignaturas_ajax' %}?carrera_id=" + carreraId)
+            .then(response => response.json())
+            .then(data => {
+                let asignaturaSelect = document.getElementById('id_asignatura');
+                asignaturaSelect.innerHTML = '<option value="">---------</option>';
+                data.forEach(function(asig) {
+                    asignaturaSelect.innerHTML += `<option value="${asig.id}">${asig.nombre}</option>`;
+                });
+                // Reset seccion
+                document.getElementById('id_seccion').innerHTML = '<option value="">---------</option>';
+            });
+        });
+
+        // --- Asignatura -> Seccion ---
+        document.getElementById('id_asignatura').addEventListener('change', function() {
+            const asigId = this.value;
+            fetch("{% url 'get_secciones_ajax' %}?asignatura_id=" + asigId)
+            .then(response => response.json())
+            .then(data => {
+                let seccionSelect = document.getElementById('id_seccion');
+                seccionSelect.innerHTML = '<option value="">---------</option>';
+                data.forEach(function(sec) {
+                    seccionSelect.innerHTML += `<option value="${sec.id}">${sec.nombre}</option>`;
+                });
+            });
+        });
+    });
+</script>
+{% endblock %}

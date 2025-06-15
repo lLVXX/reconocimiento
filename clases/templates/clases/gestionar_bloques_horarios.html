@@ -1,0 +1,73 @@
+{% extends 'core/base.html' %}
+{% load static %}
+{% block content %}
+<div class="container mt-5">
+    <h2 class="mb-4">Gestión de Bloques Horarios</h2>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+
+    <!-- Formulario -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                <div class="row">
+                    <div class="col-md-4">
+                        {{ form.nombre.label_tag }} {{ form.nombre }}
+                    </div>
+                    <div class="col-md-4">
+                        {{ form.hora_inicio.label_tag }} {{ form.hora_inicio }}
+                    </div>
+                    <div class="col-md-4">
+                        {{ form.hora_fin.label_tag }} {{ form.hora_fin }}
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary mt-3">
+                    {% if editar_id %}Actualizar{% else %}Crear{% endif %}
+                </button>
+                {% if editar_id %}
+                    <a href="{% url 'gestionar_bloques_horarios' %}" class="btn btn-secondary mt-3">Cancelar</a>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <!-- Lista de bloques -->
+    <div class="card">
+        <div class="card-body">
+            <h4>Bloques existentes</h4>
+            <table class="table table-striped mt-3">
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Inicio</th>
+                        <th>Fin</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for bloque in bloques %}
+                        <tr>
+                            <td>{{ bloque.nombre }}</td>
+                            <td>{{ bloque.hora_inicio|time:"g:i A" }}</td>
+                            <td>{{ bloque.hora_fin|time:"g:i A" }}</td>
+                            <td>
+                                <a href="?editar={{ bloque.id }}" class="btn btn-sm btn-warning">Editar</a>
+                                <a href="?eliminar={{ bloque.id }}" class="btn btn-sm btn-danger" onclick="return confirm('¿Seguro que deseas eliminar este bloque?')">Eliminar</a>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="4">No hay bloques registrados.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends 'core/base.html' %}
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4">Mis Clases</h2>
+    <table class="table table-bordered table-striped mt-3">
+        <thead class="table-dark">
+            <tr>
+                <th>Día</th>
+                <th>Bloque Horario</th>
+                <th>Sede</th>
+                <th>Sala</th>
+                <th>Asignatura</th>
+                <th>Sección</th>
+                <th>Carrera</th>
+                <th>N° Estudiantes</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for clase in clases %}
+                <tr>
+                    <td>{{ clase.get_dia_semana_display }}</td>
+                    <td>{{ clase.bloque_horario }}</td>
+                    <td>{{ clase.aula.sede.nombre }}</td>
+                    <td>{{ clase.aula.numero_sala }}</td>
+                    <td>{{ clase.seccion.asignatura.nombre }}</td>
+                    <td>{{ clase.seccion.nombre }}</td>
+                    <td>{{ clase.seccion.asignatura.carrera.nombre }}</td>
+                    <td>{{ clase.seccion.relaciones_estudiantes_asignatura.count }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="8">No tienes clases asignadas.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

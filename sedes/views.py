@@ -1,3 +1,5 @@
+# SEDES/VIEWS.PY
+
 from django.shortcuts import render, get_object_or_404, redirect
 from .models import Sede, Carrera
 from .forms import SedeForm
@@ -7,7 +9,7 @@ from django.contrib.auth.decorators import login_required
 from .forms import CarreraForm
 from django.contrib.auth.decorators import login_required, user_passes_test
 
-
+from django.db.models import Count  
 
 from django.db import transaction
 from core.models import CustomUser
@@ -295,7 +297,10 @@ def gestionar_profesores(request):
 
 
 #####################################
-@admin_zona_required
+
+
+
+@login_required
 def gestionar_estudiantes(request):
     editar_id = request.GET.get("editar")
     eliminar_id = request.GET.get("eliminar")
@@ -304,89 +309,45 @@ def gestionar_estudiantes(request):
         estudiante = get_object_or_404(CustomUser, id=eliminar_id, user_type='estudiante')
         estudiante.delete()
         messages.success(request, "Estudiante eliminado correctamente.")
-        return redirect("gestionar_estudiantes")
+        return redirect('gestionar_estudiantes')
 
     if editar_id:
-        instance = get_object_or_404(CustomUser, id=editar_id, user_type='estudiante')
-        form = EstudianteForm(request.POST or None, request.FILES or None, instance=instance, user=request.user)
+        instancia = get_object_or_404(CustomUser, id=editar_id, user_type='estudiante')
+        form = EstudianteForm(request.POST or None, request.FILES or None, instance=instancia, user=request.user)
     else:
+        instancia = None
         form = EstudianteForm(request.POST or None, request.FILES or None, user=request.user)
 
     if request.method == 'POST':
         if form.is_valid():
-            instance = form.save(commit=False)
-            nombre = form.cleaned_data['first_name'].strip().lower()
-            apellido = form.cleaned_data['last_name'].strip().lower()
-            rut = form.cleaned_data['rut']
-            carrera = form.cleaned_data['carrera']
-
-            nombre_corto = nombre[:2]
-            sede_nombre = request.user.sede.nombre.lower().replace(" ", "")
-            username_base = f"{nombre_corto}{apellido}"
-            email_base = f"{nombre_corto}.{apellido}@{sede_nombre}.com"
-
-            username_final = username_base
-            email_final = email_base
-
-            i = 1
-            while CustomUser.objects.filter(username=username_final).exclude(id=instance.id).exists():
-                username_final = f"{username_base}{i}"
-                i += 1
-
-            i = 1
-            while CustomUser.objects.filter(email=email_final).exclude(id=instance.id).exists():
-                email_final = f"{nombre_corto}.{apellido}{i}@{sede_nombre}.com"
-                i += 1
-
-            instance.username = username_final
-            instance.email = email_final
-            instance.first_name = nombre
-            instance.last_name = apellido
-            instance.user_type = 'estudiante'
-            instance.sede = request.user.sede
-            instance.carrera = carrera
-            instance.rut = rut
-
-            if form.cleaned_data.get('imagen'):
-                instance.imagen = form.cleaned_data['imagen']
-
-            if not editar_id:
-                instance.set_password('12345678')
-
-            instance.save()
-            messages.success(request, f"{'Actualizado' if editar_id else 'Creado'} correctamente: {username_final}")
-            return redirect("gestionar_estudiantes")
+            estudiante = form.save()
+            messages.success(request, "Estudiante guardado exitosamente.")
+            return redirect('gestionar_estudiantes')
         else:
-            messages.error(request, "Revisa los errores del formulario.")
+            messages.error(request, "Error al procesar el formulario. Revisa los datos.")
 
-    estudiantes = CustomUser.objects.filter(user_type='estudiante', sede=request.user.sede).select_related('carrera')
-    return render(request, "sedes/gestionar_estudiantes.html", {
+    estudiantes = CustomUser.objects.filter(user_type='estudiante', sede=request.user.sede)
+
+    return render(request, 'sedes/gestionar_estudiantes.html', {
         'form': form,
         'estudiantes': estudiantes,
-        'editar_id': editar_id
+        'editar_id': editar_id,
     })
-
-##########################################
-
-def generar_nombre_nueva_seccion(asignatura):
-    """Genera el nombre para una nueva sección como '001A', '001B', ..., '002A', etc."""
-    secciones = Seccion.objects.filter(asignatura=asignatura).order_by('nombre')
-    if not secciones.exists():
-        return "001A"
-    
-    ultimo = secciones.last().nombre
-    numero = int(ultimo[:3])
-    letra = ultimo[3]
-    
-    if letra == "Z":
-        numero += 1
-        letra = "A"
-    else:
-        letra = chr(ord(letra) + 1)
-    
-    return f"{numero:03d}{letra}"
 
 def generar_embedding_estudiante(estudiante):
     print(f"[DEBUG] Generando embedding para {estudiante.nombre} {estudiante.apellido}")
 
 
+####################################
+
+@login_required
+@admin_zona_required
+def resumen_estudiantes_por_seccion(request):
+    secciones = Seccion.objects.select_related(
+        'asignatura__carrera__sede'
+    ).annotate(
+        cantidad_estudiantes=Count('estudiantes')
+    )
+
+    contexto = {'secciones': secciones}
+    return render(request, 'clases/resumen_estudiantes.html', contexto)
