@@ -1,0 +1,128 @@
+{% extends 'core/base.html' %}
+{% block content %}
+<div class="container mt-4">
+    <h2>Clase: {{ clase.seccion.asignatura.nombre }} (Sección {{ clase.seccion.nombre }})</h2>
+    <p><b>Sala:</b> {{ clase.aula.numero_sala }} | <b>Horario:</b> {{ clase.bloque_horario }} | <b>Fecha:</b> {{ clase.fecha }}</p>
+    <button id="iniciar-asistencia" class="btn btn-success mb-4">Iniciar transmisión y asistencia</button>
+
+    <div id="lista-estudiantes" class="d-flex flex-wrap gap-2">
+        {% for estudiante in estudiantes %}
+            <div class="card estudiante-card mb-2" data-estudiante-id="{{ estudiante.id }}" style="width: 12rem; background-color: #ccc;">
+                <div class="card-body text-center">
+                    <h5 class="card-title mb-0">{{ estudiante.first_name }} {{ estudiante.last_name }}</h5>
+                    <p class="card-text">{{ estudiante.rut }}</p>
+                    <span class="badge badge-secondary estado-asistencia">Ausente</span>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    <div id="video-container" class="mt-4" style="display:none;">
+        <h4>Transmisión de la clase</h4>
+        <video id="video-stream" width="480" height="360" autoplay muted></video>
+    </div>
+</div>
+
+<script>
+let estudiantes = [];
+let embeddingsDict = {};
+let video, canvas, ctx, stream, intervalId;
+
+function marcarPresente(estudianteId) {
+    const card = document.querySelector(`.estudiante-card[data-estudiante-id="${estudianteId}"]`);
+    if(card) {
+        card.style.backgroundColor = "#90ee90";
+        card.querySelector(".estado-asistencia").innerText = "Presente";
+        card.querySelector(".estado-asistencia").className = "badge badge-success estado-asistencia";
+    }
+}
+function marcarAusente(estudianteId) {
+    const card = document.querySelector(`.estudiante-card[data-estudiante-id="${estudianteId}"]`);
+    if(card) {
+        card.style.backgroundColor = "#ccc";
+        card.querySelector(".estado-asistencia").innerText = "Ausente";
+        card.querySelector(".estado-asistencia").className = "badge badge-secondary estado-asistencia";
+    }
+}
+function marcarError(estudianteId) {
+    const card = document.querySelector(`.estudiante-card[data-estudiante-id="${estudianteId}"]`);
+    if(card) {
+        card.style.backgroundColor = "#f88";
+        card.querySelector(".estado-asistencia").innerText = "No identificado";
+        card.querySelector(".estado-asistencia").className = "badge badge-danger estado-asistencia";
+    }
+}
+
+function getEmbeddings() {
+    fetch("{% url 'api_get_embeddings' clase.id %}")
+        .then(res => res.json())
+        .then(data => {
+            estudiantes = data.estudiantes;
+            embeddingsDict = {};
+            estudiantes.forEach(e => {
+                embeddingsDict[e.id] = e.embeddings;
+            });
+            console.log("Embeddings cargados:", embeddingsDict);
+        });
+}
+
+function iniciarCamara() {
+    video = document.getElementById('video-stream');
+    canvas = document.createElement('canvas');
+    ctx = canvas.getContext('2d');
+
+    navigator.mediaDevices.getUserMedia({ video: true }).then(function(s) {
+        stream = s;
+        video.srcObject = stream;
+        video.play();
+        intervalId = setInterval(capturarYEnviarFrame, 200); // Cada 200ms (~5 fps)
+    });
+}
+
+function capturarYEnviarFrame() {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(blob => {
+        let all_embeddings = [];
+        let id_map = [];
+        estudiantes.forEach(e => {
+            e.embeddings.forEach(emb => {
+                all_embeddings.push(emb);
+                id_map.push(e.id);
+            });
+        });
+        let formData = new FormData();
+        formData.append("file", blob, "frame.jpg");
+        formData.append("embeddings", JSON.stringify(all_embeddings));
+        fetch("http://localhost:8001/match_faces/", {
+            method: "POST",
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            // Marcar presentes según similitud
+            let matches = {};
+            if (data.resultados) {
+                data.resultados.forEach((r, idx) => {
+                    if (r.similarity > 0.5) { // Ajusta el umbral si es necesario
+                        matches[id_map[idx]] = true;
+                    }
+                });
+            }
+            estudiantes.forEach(e => {
+                if (matches[e.id]) {
+                    marcarPresente(e.id);
+                }
+            });
+        });
+    }, 'image/jpeg');
+}
+
+document.getElementById('iniciar-asistencia').addEventListener('click', function() {
+    document.getElementById('video-container').style.display = 'block';
+    getEmbeddings();
+    setTimeout(iniciarCamara, 1000);
+});
+</script>
+{% endblock %}

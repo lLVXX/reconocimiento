@@ -6,6 +6,12 @@ from sedes.models import Carrera, Asignatura, Seccion
 from personas.models import EstudianteAsignaturaSeccion
 from django.db.models import Count
 
+from personas.models import EstudianteAsignaturaSeccion, EstudianteFoto
+
+from core.helpers.arcface_utils import generar_embedding_from_file
+
+
+
 
 
 # ------------------------------------------------------------
@@ -58,7 +64,6 @@ class ProfesorForm(forms.ModelForm):
 # Formulario para ESTUDIANTE (usa CustomUser + imagen)
 # ------------------------------------------------------------
 
-
 def generar_nombre_seccion(asignatura):
     sufijos = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
     existentes = set(Seccion.objects.filter(asignatura=asignatura).values_list('nombre', flat=True))
@@ -102,13 +107,28 @@ class EstudianteForm(forms.ModelForm):
 
         if commit:
             estudiante.save()
-            # Obtén todas las asignaturas de la carrera seleccionada
+            # === FOTO BASE Y EMBEDDING SOLO SI NO EXISTE YA ===
+            imagen_file = self.cleaned_data.get('imagen')
+            if imagen_file and not estudiante.fotos.filter(es_base=True).exists():
+                imagen_file.seek(0)
+                embedding = generar_embedding_from_file(imagen_file)
+                if embedding is None:
+                    raise forms.ValidationError("No se detectó rostro en la imagen.")
+                foto_base = EstudianteFoto(
+                    estudiante=estudiante,
+                    imagen=imagen_file,
+                    embedding=embedding.tobytes(),
+                    es_base=True
+                )
+                foto_base.save()
+                imagen_file.seek(0)
+            # === ASIGNACIÓN DE SECCIONES (SIN CAMBIOS) ===
             asignaturas = Asignatura.objects.filter(carrera=estudiante.carrera)
             print(">>> Asignaturas encontradas:", list(asignaturas))
             for asignatura in asignaturas:
                 print(">>> Procesando asignatura:", asignatura)
                 secciones = Seccion.objects.filter(asignatura=asignatura).annotate(
-                    num_estudiantes=Count('estudiantes_asignatura')
+                    num_estudiantes=Count('relaciones_estudiantes_asignatura')
                 )
                 seccion_asignada = None
                 for seccion in secciones:
@@ -128,7 +148,8 @@ class EstudianteForm(forms.ModelForm):
             self.save_m2m()
         return estudiante
     
-    
+
+
 # ------------------------------------------------------------
 # Formularios auxiliares para CRUD
 # ------------------------------------------------------------

@@ -9,6 +9,12 @@ from django.contrib.auth.decorators import login_required
 from .forms import CarreraForm
 from django.contrib.auth.decorators import login_required, user_passes_test
 
+
+import requests
+import numpy as np
+
+
+
 from django.db.models import Count  
 
 from django.db import transaction
@@ -320,6 +326,7 @@ def gestionar_estudiantes(request):
 
     if request.method == 'POST':
         if form.is_valid():
+            # Solo crea foto base y embedding si el estudiante NO la tiene aún
             estudiante = form.save()
             messages.success(request, "Estudiante guardado exitosamente.")
             return redirect('gestionar_estudiantes')
@@ -334,10 +341,6 @@ def gestionar_estudiantes(request):
         'editar_id': editar_id,
     })
 
-def generar_embedding_estudiante(estudiante):
-    print(f"[DEBUG] Generando embedding para {estudiante.nombre} {estudiante.apellido}")
-
-
 ####################################
 
 @login_required
@@ -351,3 +354,22 @@ def resumen_estudiantes_por_seccion(request):
 
     contexto = {'secciones': secciones}
     return render(request, 'clases/resumen_estudiantes.html', contexto)
+    
+
+###################################################################
+###                        ARCFACE                              ###
+###################################################################
+
+
+
+
+def obtener_embedding(imagen_path):
+    url = "http://localhost:8001/embedding/"  # Cambia el puerto/endpoint si tu microservicio es otro
+    with open(imagen_path, "rb") as f:
+        files = {'file': f}
+        response = requests.post(url, files=files)
+    response.raise_for_status()
+    data = response.json()
+    # El microservicio debe devolver: {"embedding": [float, float, ...]}
+    embedding = np.array(data['embedding'], dtype=np.float32)
+    return embedding

@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'sedes',
     'personas',
     'clases',
+    'arcface',
 ]
 
 MIDDLEWARE = [

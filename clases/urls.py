@@ -17,4 +17,12 @@ urlpatterns = [
 
      ################3
      path('dashboard-profesor/', views.dashboard_profesor, name='dashboard_profesor'),
+     #######################
+     path('detalle-clase/<int:clase_id>/', views.detalle_clase, name='detalle_clase'),
+     #######################
+     path('api/get-embeddings/<int:clase_id>/', views.api_get_embeddings, name='api_get_embeddings'),
+
+
+
+
 ]

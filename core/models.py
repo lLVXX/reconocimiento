@@ -3,7 +3,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from sedes.models import Sede
 from sedes.models import Asignatura
-
+from django.contrib.postgres.fields import ArrayField  # PostgreSQL requerido
 from sedes.models import Seccion
 
 
@@ -26,7 +26,7 @@ class CustomUser(AbstractUser):
     workzone = models.ForeignKey(Sede, on_delete=models.SET_NULL, null=True, blank=True, related_name='usuarios_workzone')
     asignaturas = models.ManyToManyField(Asignatura, blank=True, related_name='profesores')
     seccion = models.ForeignKey(Seccion, null=True, blank=True, on_delete=models.SET_NULL, related_name="estudiantes")
-    imagen = models.ImageField(upload_to='estudiantes/', null=True, blank=True)
+    imagen = models.ImageField(upload_to='estudiantes/', blank=True, null=True)  # Solo la foto base
     motivo_cambio = models.TextField(null=True, blank=True)
 
     def __str__(self):

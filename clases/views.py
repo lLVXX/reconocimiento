@@ -12,7 +12,15 @@ from .forms import AulaForm
 from .forms import ClaseForm
 from .models import Clase
 from sedes.models import Seccion, Asignatura
+from personas.models import EstudianteFoto
 from django.http import JsonResponse, HttpResponseForbidden
+from personas.models import EstudianteAsignaturaSeccion
+
+from core.models import CustomUser
+
+import numpy as np
+
+
 
 @login_required
 @admin_zona_required
@@ -184,3 +192,38 @@ def dashboard_profesor(request):
     return render(request, 'clases/dashboard_profesor.html', {
         'clases': clases
     })
+
+
+############## VISTA DE CLASES #################
+@login_required
+def detalle_clase(request, clase_id):
+    clase = get_object_or_404(Clase, id=clase_id, profesor=request.user)
+    asignaciones = EstudianteAsignaturaSeccion.objects.filter(seccion=clase.seccion)
+    estudiantes = [a.estudiante for a in asignaciones]
+    print("DEBUG [detalle_clase] CLASE:", clase)
+    print("DEBUG [detalle_clase] ESTUDIANTES:", estudiantes)
+    return render(request, "clases/detalle_clase.html", {
+        "clase": clase,
+        "estudiantes": estudiantes,
+    })
+
+@login_required
+def api_get_embeddings(request, clase_id):
+    clase = get_object_or_404(Clase, id=clase_id, profesor=request.user)
+    asignaciones = EstudianteAsignaturaSeccion.objects.filter(seccion=clase.seccion)
+    estudiantes = [a.estudiante for a in asignaciones]
+    data = []
+    for est in estudiantes:
+        fotos = EstudianteFoto.objects.filter(estudiante=est)
+        embeddings = []
+        for foto in fotos:
+            if foto.embedding:
+                emb = np.frombuffer(foto.embedding, dtype=np.float32)
+                embeddings.append(emb.tolist())
+        data.append({
+            "id": est.id,
+            "nombre": f"{est.first_name} {est.last_name}",
+            "embeddings": embeddings,
+        })
+    print("DEBUG [api_get_embeddings] DATA:", data)
+    return JsonResponse({"estudiantes": data})
