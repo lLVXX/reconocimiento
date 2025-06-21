@@ -19,7 +19,7 @@ urlpatterns = [
     path('get_asignaturas_ajax/', views.get_asignaturas_ajax, name='get_asignaturas_ajax'),
     path('get_secciones_ajax/', views.get_secciones_ajax, name='get_secciones_ajax'),
 
-
+   
     path('gestionar_clases/', views.gestionar_clases, name='gestionar_clases'),
     path('get_asignaturas_ajax/', views.get_asignaturas_ajax, name='get_asignaturas_ajax'),
     path('get_secciones_ajax/', views.get_secciones_ajax, name='get_secciones_ajax'),

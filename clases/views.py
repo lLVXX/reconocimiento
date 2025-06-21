@@ -13,11 +13,12 @@ from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 import requests
+from datetime import timedelta
 from django import forms
 import io
 import base64
 import json
-
+from django.db import transaction
 # ========== CONFIGURACIÓN ARC FACE ==========
 ARCFACE_URL = "http://localhost:8001/match_faces/"
 
@@ -84,11 +85,19 @@ def gestionar_aulas(request):
 # CRUD CLASES — VISUAL / TABLERO SEMANAL
 ##############################################
 
+
+
+
+
+
+
+
+
+
 @login_required
 def gestionar_clases(request):
     print("\n---- [gestionar_clases] ----")
     user = request.user
-    print(f"User: {user} ({user.user_type}), Sede: {user.sede}")
     es_admin_zona = user.user_type == 'admin_zona'
     profesores = CustomUser.objects.filter(
         user_type='profesor',
@@ -100,107 +109,85 @@ def gestionar_clases(request):
     dias_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 
     selected_profesor_id = request.GET.get('profesor') or request.POST.get('profesor')
-    print(f"Selected Profesor ID: {selected_profesor_id}")
     selected_profesor = CustomUser.objects.filter(id=selected_profesor_id).first() if selected_profesor_id else None
 
     editar_id = request.GET.get('editar')
     eliminar_id = request.GET.get('eliminar')
-    print(f"Editar ID: {editar_id} | Eliminar ID: {eliminar_id}")
+
+    form = None
+    modo_edicion = False
 
     # --- ELIMINAR ---
     if eliminar_id and selected_profesor:
-        print(f"[Eliminar] Solicitando eliminar clase ID: {eliminar_id} del profesor {selected_profesor}")
         clase = get_object_or_404(Clase, id=eliminar_id, profesor=selected_profesor)
         clase.delete()
-        print("[Eliminar] Clase eliminada correctamente.")
         messages.success(request, "Clase eliminada correctamente.")
         return redirect(f"{reverse('gestionar_clases')}?profesor={selected_profesor.id}")
 
     # --- EDITAR ---
     if editar_id and selected_profesor:
-        print(f"[Editar] Solicitando edición clase ID: {editar_id}")
         clase = get_object_or_404(Clase, id=editar_id, profesor=selected_profesor)
+        modo_edicion = True
         if request.method == "POST" and request.POST.get("es_edicion") == "1":
-            print("[Editar] POST recibido para edición de clase")
             form = ClaseForm(request.POST, instance=clase, user=selected_profesor)
             form.fields['profesor'].initial = selected_profesor.id
-            print(f"[Editar] Formulario recibido: {form.data}")
             if form.is_valid():
-                print("[Editar] Formulario válido")
                 clase_editada = form.save(commit=False)
-                print(f"[Editar] Datos antes de guardar: "
-                      f"profesor={clase_editada.profesor}, "
-                      f"seccion={clase_editada.seccion}, "
-                      f"bloque_horario={clase_editada.bloque_horario}, "
-                      f"dia_semana={clase_editada.dia_semana}, aula={clase_editada.aula}")
                 clase_editada.profesor = selected_profesor
-                clase_editada.save()
-                messages.success(request, "Clase editada correctamente.")
-                print("[Editar] Clase editada y guardada correctamente.")
+                try:
+                    clase_editada.save()
+                    messages.success(request, "Clase editada correctamente.")
+                except Exception as e:
+                    messages.error(request, f"ERROR AL GUARDAR LA CLASE: {e}")
                 return redirect(f"{reverse('gestionar_clases')}?profesor={selected_profesor.id}")
-            else:
-                print(f"[Editar] Formulario con errores: {form.errors}")
         else:
             initial = {
                 'carrera': clase.seccion.asignatura.carrera,
                 'asignatura': clase.seccion.asignatura,
                 'seccion': clase.seccion,
             }
-            print(f"[Editar] Renderizando form de edición con initial: {initial}")
             form = ClaseForm(instance=clase, user=selected_profesor, initial=initial)
             form.fields['profesor'].initial = selected_profesor.id
-            modo_edicion = True
-    else:
-        # --- CREAR ---
-        if selected_profesor:
-            print("[Crear] Renderizando formulario de creación para profesor seleccionado")
-            form = ClaseForm(request.POST or None, user=selected_profesor)
-            form.fields['profesor'].initial = selected_profesor.id
-            modo_edicion = False
-            if request.method == "POST" and not request.POST.get("es_edicion"):
-                print("[Crear] POST recibido para crear clase")
-                print(f"[Crear] Formulario recibido: {form.data}")
-                if form.is_valid():
-                    print("[Crear] Formulario válido")
-                    nueva_clase = form.save(commit=False)
-                    existe = Clase.objects.filter(
-                        profesor=selected_profesor,
-                        dia_semana=form.cleaned_data['dia_semana'],
-                        bloque_horario=form.cleaned_data['bloque_horario']
-                    ).exists()
-                    if existe:
-                        print("[Crear] Ya existe una clase para ese horario")
-                        messages.error(request, "Ya existe una clase para ese profesor en ese horario.")
-                    else:
-                        print(f"[Crear] Datos antes de guardar: "
-                              f"profesor={nueva_clase.profesor}, "
-                              f"seccion={nueva_clase.seccion}, "
-                              f"bloque_horario={nueva_clase.bloque_horario}, "
-                              f"dia_semana={nueva_clase.dia_semana}, aula={nueva_clase.aula}")
-                        nueva_clase.profesor = selected_profesor
-                        nueva_clase.save()
-                        print("[Crear] Clase creada correctamente")
-                        messages.success(request, "Clase agendada exitosamente.")
-                        return redirect(f"{request.path}?profesor={selected_profesor.id}")
+    # --- CREAR ---
+    elif selected_profesor:
+        form = ClaseForm(request.POST or None, user=selected_profesor)
+        form.fields['profesor'].initial = selected_profesor.id
+        if request.method == "POST" and request.POST.get("es_edicion") == "0":
+            if form.is_valid():
+                nueva_clase = form.save(commit=False)
+                clases_iguales = Clase.objects.filter(
+                    profesor=selected_profesor,
+                    dia_semana=form.cleaned_data['dia_semana'],
+                    bloque_horario=form.cleaned_data['bloque_horario']
+                )
+                if clases_iguales.exists():
+                    messages.error(request, f"Ya existe una clase para ese profesor en ese horario.")
                 else:
-                    print(f"[Crear] Formulario con errores: {form.errors}")
-        else:
-            print("[Crear] No se ha seleccionado profesor")
-            form = None
-            modo_edicion = False
+                    nueva_clase.profesor = selected_profesor
+                    try:
+                        nueva_clase.save()
+                        messages.success(request, "Clase agendada exitosamente.")
+                    except Exception as e:
+                        messages.error(request, f"ERROR AL GUARDAR LA CLASE: {e}")
+                    return redirect(f"{request.path}?profesor={selected_profesor.id}")
+        modo_edicion = False
 
     # --- MATRIZ PARA TABLERO SEMANAL ---
-    print(f"[Tablero] Construyendo matriz de clases para el tablero semanal...")
     matriz = {dia: {bloque.id: None for bloque in bloques} for dia in dias}
     clases = []
+    clase_estudiantes = {}
     if selected_profesor:
         clases = Clase.objects.filter(
             profesor=selected_profesor,
         ).select_related('bloque_horario', 'seccion', 'seccion__asignatura', 'aula')
-        print(f"[Tablero] Clases encontradas para tablero: {clases.count()}")
         for clase in clases:
-            print(f"[Tablero] Clase: id={clase.id}, seccion={clase.seccion}, bloque={clase.bloque_horario}, dia={clase.dia_semana}, aula={clase.aula}")
             matriz[clase.dia_semana][clase.bloque_horario.id] = clase
+            # Aquí calculamos la cantidad REAL de estudiantes
+            num_estudiantes = EstudianteAsignaturaSeccion.objects.filter(
+                seccion=clase.seccion,
+                asignatura=clase.seccion.asignatura
+            ).count()
+            clase_estudiantes[clase.id] = num_estudiantes
 
     context = {
         'profesores': profesores,
@@ -210,12 +197,41 @@ def gestionar_clases(request):
         'matriz': matriz,
         'selected_profesor_id': int(selected_profesor_id) if selected_profesor_id else None,
         'form': form,
-        'modo_edicion': bool(editar_id),
+        'modo_edicion': modo_edicion,
         'editar_id': int(editar_id) if editar_id else None,
         'clases': clases,
+        'clase_estudiantes': clase_estudiantes,  # <-- esto es clave
     }
-    print(f"[Render] Renderizando con contexto: { {k:str(v)[:150] for k,v in context.items()} }")
     return render(request, "clases/gestionar_clases.html", context)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # AJAX:
 from django.views.decorators.http import require_GET
 
@@ -240,15 +256,75 @@ def get_secciones_ajax(request):
 ##############################################
 # DASHBOARD PROFESOR
 ##############################################
+
+
+
+
+
+
+
+
 @login_required
 def dashboard_profesor(request):
+    user = request.user
+    if user.user_type != 'profesor':
+        return redirect('dashboard_profesor')
+
+    # Obtener clases del semestre actual
     clases = Clase.objects.filter(
-        profesor=request.user,
-        finalizada=False
-    ).select_related(
-        'aula', 'bloque_horario', 'seccion', 'seccion__asignatura', 'seccion__asignatura__carrera', 'aula__sede'
-    ).order_by('fecha', 'bloque_horario__hora_inicio')
-    return render(request, 'clases/dashboard_profesor.html', {'clases': clases})
+        profesor=user
+    ).select_related('seccion', 'seccion__asignatura', 'bloque_horario', 'aula')
+
+    total_clases = clases.count()
+    finalizadas = clases.filter(finalizada=True).count()
+    activas = clases.filter(finalizada=False).count()
+
+    # MÉTRICAS DE ASISTENCIA
+    total_asistencias = AsistenciaClase.objects.filter(clase__profesor=user).count()
+    total_presentes = AsistenciaClase.objects.filter(clase__profesor=user, presente=True).count()
+    total_ausentes = AsistenciaClase.objects.filter(clase__profesor=user, presente=False).count()
+
+    # GRÁFICO SEMANAL (últimas 6 semanas)
+    hoy = timezone.now().date()
+    semanas = []
+    datos_presentes = []
+    datos_ausentes = []
+    for i in range(6):
+        inicio_sem = hoy - timedelta(days=hoy.weekday() + 7*i)
+        fin_sem = inicio_sem + timedelta(days=6)
+        week_label = f"Semana {6-i}"
+        semana_asistencias = AsistenciaClase.objects.filter(
+            clase__profesor=user,
+            clase__fecha__range=(inicio_sem, fin_sem)
+        )
+        presentes = semana_asistencias.filter(presente=True).count()
+        ausentes = semana_asistencias.filter(presente=False).count()
+        semanas.insert(0, week_label)
+        datos_presentes.insert(0, presentes)
+        datos_ausentes.insert(0, ausentes)
+
+    # Últimas 10 clases (puedes mejorar paginando, filtrando por semana, etc.)
+    clases_historial = clases.order_by('-fecha')[:10]
+
+    context = {
+        'total_clases': total_clases,
+        'finalizadas': finalizadas,
+        'activas': activas,
+        'total_asistencias': total_asistencias,
+        'total_presentes': total_presentes,
+        'total_ausentes': total_ausentes,
+        'semanas': semanas,
+        'datos_presentes': datos_presentes,
+        'datos_ausentes': datos_ausentes,
+        'clases_historial': clases_historial,
+    }
+    return render(request, "clases/dashboard_profesor.html", context)
+
+
+
+
+
+
 
 ##############################################
 # AJAX ENDPOINTS
@@ -390,21 +466,86 @@ def reporte_clase(request, clase_id):
         "porcentaje": porcentaje,
     })
 
+###############################################
+
+
+
+
+
+
+
+
 @login_required
 def historial_clases(request):
-    clases = Clase.objects.filter(
-        profesor=request.user,
-        finalizada=True
-    ).select_related(
-        'aula', 'bloque_horario', 'seccion', 'seccion__asignatura', 'seccion__asignatura__carrera', 'aula__sede'
-    ).order_by('-fecha_finalizacion')
-    return render(request, "clases/historial_clases.html", {
-        "clases": clases
-    })
+    user = request.user
+    fecha_inicio = request.GET.get('fecha_inicio')
+    fecha_fin = request.GET.get('fecha_fin')
+    qs = Clase.objects.filter(profesor=user, finalizada=True).select_related(
+        'seccion', 'seccion__asignatura', 'aula', 'bloque_horario'
+    ).prefetch_related('asistencias')
 
+    if fecha_inicio:
+        qs = qs.filter(fecha__gte=fecha_inicio)
+    if fecha_fin:
+        qs = qs.filter(fecha__lte=fecha_fin)
+
+    total_clases = qs.count()
+    total_asistencias = AsistenciaClase.objects.filter(clase__in=qs, presente=True).count()
+    total_estudiantes = AsistenciaClase.objects.filter(clase__in=qs).values('estudiante').distinct().count()
+
+    # Gráfico semanal (6 semanas)
+    from django.utils import timezone
+    resumen_semanal = []
+    hoy = timezone.now().date()
+    for i in range(6, 0, -1):
+        inicio = hoy - timezone.timedelta(days=7*i)
+        fin = hoy - timezone.timedelta(days=7*(i-1))
+        semana_clases = qs.filter(fecha__range=[inicio, fin])
+        semana_asist = AsistenciaClase.objects.filter(clase__in=semana_clases, presente=True).count()
+        resumen_semanal.append({
+            'semana': f"{inicio.strftime('%d/%m')} - {fin.strftime('%d/%m')}",
+            'clases': semana_clases.count(),
+            'asistencias': semana_asist,
+        })
+
+    detalle = []
+    for clase in qs.order_by('-fecha'):
+        presentes = clase.asistencias.filter(presente=True).count()
+        total = clase.asistencias.count()
+        detalle.append({
+            'clase': clase,
+            'presentes': presentes,
+            'total': total,
+            'porcentaje': (presentes/total*100) if total else 0,
+        })
+
+    context = {
+        'total_clases': total_clases,
+        'total_asistencias': total_asistencias,
+        'total_estudiantes': total_estudiantes,
+        'resumen_semanal': resumen_semanal,
+        'detalle': detalle,
+        'fecha_inicio': fecha_inicio or '',
+        'fecha_fin': fecha_fin or '',
+    }
+    return render(request, 'clases/historial_clases.html', context)
+
+
+
+
+
+
+
+
+
+
+
+
+###############################################
 ################################################
 # HORARIO DEL PROFESOR
 ################################################
+
 @login_required
 def horario_profesor(request):
     user = request.user
@@ -412,7 +553,10 @@ def horario_profesor(request):
         return redirect('dashboard_profesor')
     semanas = SemanaAcademica.objects.filter(calendario__sede=user.sede).order_by('numero')
     semana_id = request.GET.get('semana')
-    semana_seleccionada = semanas.filter(id=semana_id).first() if semana_id else semanas.filter(tipo='clases').order_by('fecha_inicio').first()
+    if semana_id:
+        semana_seleccionada = semanas.filter(id=semana_id).first()
+    else:
+        semana_seleccionada = semanas.filter(tipo='clases').order_by('fecha_inicio').first()
     bloques = BloqueHorario.objects.order_by('hora_inicio')
     dias = ['LU', 'MA', 'MI', 'JU', 'VI', 'SA']
     matriz = {dia: {bloque.id: None for bloque in bloques} for dia in dias}

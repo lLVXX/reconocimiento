@@ -9,5 +9,6 @@ urlpatterns = [
     path('gestionar-secciones/', views.gestionar_secciones, name='gestionar_secciones'),
     path('gestionar-profesores/', views.gestionar_profesores, name='gestionar_profesores'),
     path("gestionar-estudiantes/", views.gestionar_estudiantes, name="gestionar_estudiantes"),
+    path('ajax_asignaturas_secciones/', views.ajax_asignaturas_secciones, name='ajax_asignaturas_secciones'),
     
 ]

@@ -16,6 +16,16 @@ from .models import CalendarioAcademico, SemanaAcademica, Sede
 # Modelos propios
 from .models import CustomUser
 from sedes.models import Seccion
+from django.template.loader import get_template
+from django.http import HttpResponse
+from xhtml2pdf import pisa
+from django.utils import timezone
+
+
+from sedes.models import Sede, Carrera, Asignatura, Seccion
+from core.models import CustomUser
+from clases.models import Clase, AsistenciaClase
+from personas.models import EstudianteAsignaturaSeccion
 
 
 # Decoradores y utilidades personalizadas
@@ -55,9 +65,182 @@ def portal_inicio(request):
     return render(request, 'core/portal_inicio.html', {'form': form})
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 @login_required
+@user_passes_test(admin_global_required)
 def dashboard_admin_global(request):
-    return render(request, 'core/dashboard_admin_global.html')
+    sede_id = request.GET.get("sede")
+    carrera_id = request.GET.get("carrera")
+    sede_actual = Sede.objects.filter(id=sede_id).first() if sede_id else None
+
+    # --- CARRERAS SOLO DE LA SEDE SELECCIONADA ---
+    if sede_actual:
+        carreras = Carrera.objects.filter(sede=sede_actual)
+    else:
+        carreras = Carrera.objects.all()
+    carrera_actual = carreras.filter(id=carrera_id).first() if carrera_id else None
+
+    # --- FILTROS EN QUERIES ---
+    # Aplicar filtros por Sede y luego por Carrera
+    filtro = {}
+    if sede_actual:
+        filtro['carrera__sede'] = sede_actual
+    if carrera_actual:
+        filtro['carrera'] = carrera_actual
+
+    filtro_sede = {}
+    if sede_actual:
+        filtro_sede['sede'] = sede_actual
+
+    filtro_solo_sede = {}
+    if sede_actual:
+        filtro_solo_sede['aula__sede'] = sede_actual
+
+    filtro_solo_carrera = {}
+    if carrera_actual:
+        filtro_solo_carrera['carrera'] = carrera_actual
+
+    # --- MÉTRICAS GLOBALES ---
+    total_sedes = Sede.objects.count()
+    total_carreras = Carrera.objects.filter(**filtro_sede).count() if sede_actual else Carrera.objects.count()
+    total_asignaturas = Asignatura.objects.filter(**filtro).count() if (sede_actual or carrera_actual) else Asignatura.objects.count()
+    total_secciones = Seccion.objects.filter(asignatura__carrera__sede=sede_actual).count() if sede_actual else Seccion.objects.count()
+    total_profesores = CustomUser.objects.filter(user_type="profesor", sede=sede_actual).count() if sede_actual else CustomUser.objects.filter(user_type="profesor").count()
+    total_estudiantes = CustomUser.objects.filter(user_type="estudiante", sede=sede_actual).count() if sede_actual else CustomUser.objects.filter(user_type="estudiante").count()
+    total_clases = Clase.objects.filter(**filtro_solo_sede).count() if sede_actual else Clase.objects.count()
+    total_clases_finalizadas = Clase.objects.filter(finalizada=True, **filtro_solo_sede).count() if sede_actual else Clase.objects.filter(finalizada=True).count()
+    total_asistencias = AsistenciaClase.objects.filter(clase__aula__sede=sede_actual, presente=True).count() if sede_actual else AsistenciaClase.objects.filter(presente=True).count()
+    asistencia_registros = AsistenciaClase.objects.filter(clase__aula__sede=sede_actual).count() if sede_actual else AsistenciaClase.objects.count()
+    porcentaje_asistencia = 100 * total_asistencias / asistencia_registros if asistencia_registros else 0
+
+    # --- TABLA DE SEDES ---
+    sedes_stats = []
+    sedes_tabla = Sede.objects.all()
+    for sede in sedes_tabla:
+        carreras_q = Carrera.objects.filter(sede=sede)
+        if carrera_actual:
+            carreras_q = carreras_q.filter(id=carrera_actual.id)
+        asignaturas_q = Asignatura.objects.filter(carrera__in=carreras_q)
+        secciones_q = Seccion.objects.filter(asignatura__in=asignaturas_q)
+        profesores_q = CustomUser.objects.filter(user_type="profesor", sede=sede)
+        estudiantes_q = CustomUser.objects.filter(user_type="estudiante", sede=sede)
+        clases_q = Clase.objects.filter(aula__sede=sede)
+        clases_finalizadas_q = clases_q.filter(finalizada=True)
+        asistencias_q = AsistenciaClase.objects.filter(clase__aula__sede=sede, presente=True)
+        asistencias_totales = AsistenciaClase.objects.filter(clase__aula__sede=sede)
+        if carrera_actual:
+            asignaturas_q = asignaturas_q.filter(carrera=carrera_actual)
+            secciones_q = secciones_q.filter(asignatura__carrera=carrera_actual)
+            clases_q = clases_q.filter(seccion__asignatura__carrera=carrera_actual)
+            clases_finalizadas_q = clases_finalizadas_q.filter(seccion__asignatura__carrera=carrera_actual)
+            asistencias_q = asistencias_q.filter(clase__seccion__asignatura__carrera=carrera_actual)
+            asistencias_totales = asistencias_totales.filter(clase__seccion__asignatura__carrera=carrera_actual)
+            profesores_q = profesores_q.filter(carrera=carrera_actual)
+            estudiantes_q = estudiantes_q.filter(carrera=carrera_actual)
+        porc_asistencia = 100 * asistencias_q.count() / asistencias_totales.count() if asistencias_totales.count() else 0
+
+        sedes_stats.append({
+            "sede": sede,
+            "carreras": carreras_q.count(),
+            "asignaturas": asignaturas_q.count(),
+            "secciones": secciones_q.count(),
+            "profesores": profesores_q.count(),
+            "estudiantes": estudiantes_q.count(),
+            "clases": clases_q.count(),
+            "clases_finalizadas": clases_finalizadas_q.count(),
+            "porc_asistencia": porc_asistencia,
+        })
+
+     # --- TOP 10 ASIGNATURAS ---
+    asignaturas_qs = Asignatura.objects.all()
+    if sede_actual:
+        asignaturas_qs = asignaturas_qs.filter(carrera__sede=sede_actual)
+    if carrera_actual:
+        asignaturas_qs = asignaturas_qs.filter(carrera=carrera_actual)
+    asignaturas_ranking = (
+        asignaturas_qs.annotate(
+            num_estudiantes=Count('secciones__relaciones_estudiantes_asignatura', distinct=True)
+        )
+        .order_by('-num_estudiantes')[:10]
+    )
+
+    # --- Para select dinámico de carreras ---
+    carreras_todas = Carrera.objects.filter(sede=sede_actual) if sede_actual else Carrera.objects.all()
+
+    context = {
+        "total_sedes": total_sedes,
+        "total_carreras": total_carreras,
+        "total_asignaturas": total_asignaturas,
+        "total_secciones": total_secciones,
+        "total_profesores": total_profesores,
+        "total_estudiantes": total_estudiantes,
+        "total_clases": total_clases,
+        "total_clases_finalizadas": total_clases_finalizadas,
+        "total_asistencias": total_asistencias,
+        "porcentaje_asistencia": porcentaje_asistencia,
+        "sedes_stats": sedes_stats,
+        "asignaturas_ranking": asignaturas_ranking,
+        "sedes": Sede.objects.all(),
+        "carreras": carreras_todas,
+        "sede_actual": sede_actual,
+        "carrera_actual": carrera_actual,
+    }
+    return render(request, "core/dashboard_admin_global.html", context)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def cerrar_sesion(request):
@@ -245,3 +428,108 @@ def gestionar_calendario(request):
         'es_admin_zona': es_admin_zona,
     }
     return render(request, "core/gestionar_calendario.html", context)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+@login_required
+@user_passes_test(admin_global_required)
+def exportar_dashboard_pdf(request):
+    # Copia la lógica de métricas y filtros EXACTA al dashboard_admin_global
+    sede_id = request.GET.get("sede")
+    carrera_id = request.GET.get("carrera")
+    sede_actual = Sede.objects.filter(id=sede_id).first() if sede_id else None
+    carrera_actual = Carrera.objects.filter(id=carrera_id).first() if carrera_id else None
+
+    sedes = Sede.objects.all().order_by('nombre')
+    total_sedes = sedes.count()
+    total_carreras = Carrera.objects.count()
+    total_asignaturas = Asignatura.objects.count()
+    total_secciones = Seccion.objects.count()
+    total_profesores = CustomUser.objects.filter(user_type="profesor").count()
+    total_estudiantes = CustomUser.objects.filter(user_type="estudiante").count()
+    total_clases = Clase.objects.count()
+    total_clases_finalizadas = Clase.objects.filter(finalizada=True).count()
+    total_asistencias = AsistenciaClase.objects.filter(presente=True).count()
+    porcentaje_asistencia = (
+        100 * total_asistencias / AsistenciaClase.objects.count()
+        if AsistenciaClase.objects.exists() else 0
+    )
+
+    # Estadísticas por sede
+    sedes_stats = []
+    for sede in sedes:
+        carreras = sede.carreras.count()
+        asignaturas = Asignatura.objects.filter(carrera__sede=sede).count()
+        secciones = Seccion.objects.filter(asignatura__carrera__sede=sede).count()
+        profesores = CustomUser.objects.filter(user_type='profesor', sede=sede).count()
+        estudiantes = CustomUser.objects.filter(user_type='estudiante', sede=sede).count()
+        clases = Clase.objects.filter(aula__sede=sede).count()
+        clases_finalizadas = Clase.objects.filter(aula__sede=sede, finalizada=True).count()
+        asistencia_total = AsistenciaClase.objects.filter(clase__aula__sede=sede, presente=True).count()
+        asistencia_total_registros = AsistenciaClase.objects.filter(clase__aula__sede=sede).count()
+        porc_asistencia = (
+            100 * asistencia_total / asistencia_total_registros if asistencia_total_registros else 0
+        )
+        sedes_stats.append({
+            "sede": sede,
+            "carreras": carreras,
+            "asignaturas": asignaturas,
+            "secciones": secciones,
+            "profesores": profesores,
+            "estudiantes": estudiantes,
+            "clases": clases,
+            "clases_finalizadas": clases_finalizadas,
+            "porc_asistencia": porc_asistencia,
+        })
+
+    asignaturas_qs = Asignatura.objects.all()
+    if sede_actual:
+        asignaturas_qs = asignaturas_qs.filter(carrera__sede=sede_actual)
+    if carrera_actual:
+        asignaturas_qs = asignaturas_qs.filter(carrera=carrera_actual)
+    asignaturas_ranking = (
+        asignaturas_qs.annotate(
+            num_estudiantes=Count('secciones__relaciones_estudiantes_asignatura', distinct=True)
+        )
+        .order_by('-num_estudiantes')[:10]
+    )
+
+    context = {
+        "total_sedes": total_sedes,
+        "total_carreras": total_carreras,
+        "total_asignaturas": total_asignaturas,
+        "total_secciones": total_secciones,
+        "total_profesores": total_profesores,
+        "total_estudiantes": total_estudiantes,
+        "total_clases": total_clases,
+        "total_clases_finalizadas": total_clases_finalizadas,
+        "total_asistencias": total_asistencias,
+        "porcentaje_asistencia": porcentaje_asistencia,
+        "sedes_stats": sedes_stats,
+        "asignaturas_ranking": asignaturas_ranking,
+        "fecha_generacion": timezone.now(),
+        "sede_actual": sede_actual,
+        "carrera_actual": carrera_actual,
+        "admin_user": request.user,
+    }
+
+    template = get_template("core/dashboard_pdf.html")
+    html = template.render(context)
+
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = 'attachment; filename="dashboard_reporte.pdf"'
+
+    pisa.CreatePDF(html, dest=response)
+    return response

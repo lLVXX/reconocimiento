@@ -3,19 +3,19 @@ from django import template
 
 register = template.Library()
 
-@register.filter
-def dict_get(diccionario, clave):
-    try:
-        return diccionario.get(clave)
-    except Exception:
-        return None
-
 
 @register.filter
 def get_item(dictionary, key):
     return dictionary.get(key)
 
 
+
+@register.filter
+def dict_get(d, key):
+    """Obtiene el valor de un diccionario por clave"""
+    if d and key in d:
+        return d[key]
+    return None
 
 
 @register.filter(name='add_class')

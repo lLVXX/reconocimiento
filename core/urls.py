@@ -1,7 +1,7 @@
 #core/urls.py
 from django.urls import path
 from .views import redirigir_por_rol, dashboard_admin_zona
-
+from core import views as core_views
 from . import views
 
 urlpatterns = [
@@ -15,6 +15,8 @@ urlpatterns = [
     path('admin-global/gestionar_admin_zona/', views.gestionar_admin_zona, name='gestionar_admin_zona'),
 
     path('calendario/', views.gestionar_calendario, name='gestionar_calendario'),
+
+    path('dashboard/exportar-pdf/', core_views.exportar_dashboard_pdf, name='exportar_dashboard_pdf'),
     
 
 ]

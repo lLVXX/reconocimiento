@@ -1,205 +1,152 @@
-{% extends 'core/base.html' %}
-{% load static %}
+{% extends "core/base.html" %}
 {% load dict_extras %}
+{% load static %}
 
 {% block content %}
 <div class="container mt-4">
-    <div class="row justify-content-center">
-        <div class="col-lg-10">
-            <div class="card shadow-lg border-0">
-                <div class="card-header bg-primary bg-gradient text-white py-4 rounded-top text-center">
-                    <h2 class="mb-1 d-flex align-items-center justify-content-center" style="gap: 0.5rem;">
-                        <i class="bi bi-calendar-week-fill fs-2"></i>
-                        <span>Gestión de Horario Semanal de Clases</span>
-                    </h2>
-                </div>
-                <div class="card-body">
-
-                    <!-- Mensajes de éxito/error -->
-                    {% if messages %}
-                        <div>
-                        {% for message in messages %}
-                            <div class="alert alert-{{ message.tags }} mb-3">{{ message }}</div>
-                        {% endfor %}
-                        </div>
-                    {% endif %}
-
-                    <!-- Dropdown Profesor -->
-                    <form method="get" class="row justify-content-center mb-4">
-                        <div class="col-md-6">
-                            <label class="form-label text-secondary fw-semibold text-center w-100 mb-2">
-                                <i class="bi bi-person-badge-fill me-2"></i>Profesor
-                            </label>
-                            <select name="profesor" class="form-select form-select-lg bg-white text-dark border-primary shadow-sm" onchange="this.form.submit()" style="font-size:1.15rem;">
-                                <option value="">-- Selecciona un profesor --</option>
-                                {% for profe in profesores %}
-                                    <option value="{{ profe.id }}" {% if profe.id == selected_profesor_id %}selected{% endif %}>
-                                        {{ profe.get_full_name }}
-                                    </option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                    </form>
-
-                    <!-- Formulario de Clase: Crear/Editar -->
-                    {% if selected_profesor_id and form %}
-                    <form method="post" class="row g-3 align-items-end py-2 rounded-3 mb-0" id="claseForm" autocomplete="off">
-                        {% csrf_token %}
-                        <input type="hidden" name="es_edicion" value="{% if modo_edicion %}1{% else %}0{% endif %}">
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">{{ form.carrera.label }}</label>
-                            {{ form.carrera }}
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">{{ form.asignatura.label }}</label>
-                            {{ form.asignatura }}
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">{{ form.seccion.label }}</label>
-                            {{ form.seccion }}
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">{{ form.dia_semana.label }}</label>
-                            {{ form.dia_semana }}
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">{{ form.bloque_horario.label }}</label>
-                            {{ form.bloque_horario }}
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">{{ form.aula.label }}</label>
-                            {{ form.aula }}
-                        </div>
-                        <div style="display:none;">
-                            {{ form.profesor }}
-                        </div>
-                        <div class="col-12 text-end">
-                            <button type="submit" class="btn {% if modo_edicion %}btn-warning{% else %}btn-success{% endif %} px-4 rounded-3 shadow">
-                                {% if modo_edicion %}Guardar Cambios{% else %}Agregar Clase{% endif %}
-                            </button>
-                            {% if modo_edicion %}
-                            <a href="{% url 'gestionar_clases' %}?profesor={{ selected_profesor_id }}" class="btn btn-secondary ms-2">Cancelar</a>
-                            {% endif %}
-                        </div>
-                        {% if form.errors %}
-                          <div class="alert alert-danger mt-3">
-                              <b>Errores en el formulario:</b>
-                              <ul>
-                              {% for field in form %}
-                                  {% for error in field.errors %}
-                                      <li><b>{{ field.label }}:</b> {{ error }}</li>
-                                  {% endfor %}
-                              {% endfor %}
-                              {% for error in form.non_field_errors %}
-                                  <li>{{ error }}</li>
-                              {% endfor %}
-                              </ul>
-                          </div>
-                        {% endif %}
-                    </form>
-                    {% else %}
-                        <div class="alert alert-info my-3">
-                            Selecciona un profesor para visualizar y agendar su horario semanal.
-                        </div>
-                    {% endif %}
-                </div>
+  <h2>Gestión de Horario Semanal de Clases</h2>
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }} my-2">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+  <form method="get" class="mb-4 d-flex align-items-center">
+    <label class="me-2"><strong>Profesor</strong></label>
+    <select name="profesor" class="form-select w-auto me-2" style="min-width:250px;" onchange="this.form.submit()">
+      <option value="">Seleccione un profesor...</option>
+      {% for p in profesores %}
+        <option value="{{ p.id }}" {% if p.id == selected_profesor_id %}selected{% endif %}>{{ p.get_full_name }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-primary" type="submit">Ver</button>
+  </form>
+  {% if selected_profesor_id and form %}
+    <div class="card mb-4">
+      <div class="card-body">
+        <h5 class="card-title">{% if modo_edicion %}Editar Clase{% else %}Crear Nueva Clase{% endif %}</h5>
+        <form method="post" class="row g-3">
+          {% csrf_token %}
+          {{ form.non_field_errors }}
+          <input type="hidden" name="es_edicion" value="{% if modo_edicion %}1{% else %}0{% endif %}">
+          <input type="hidden" name="profesor" value="{{ selected_profesor_id }}">
+          {% for field in form %}
+            <div class="col-md-4">
+              <label for="{{ field.id_for_label }}" class="form-label">{{ field.label }}</label>
+              {{ field }}
+              {% if field.errors %}
+                <div class="text-danger small">{{ field.errors|striptags }}</div>
+              {% endif %}
             </div>
-        </div>
+          {% endfor %}
+          <div class="col-12">
+            <button type="submit" class="btn btn-success">{% if modo_edicion %}Guardar Cambios{% else %}Agregar Clase{% endif %}</button>
+            {% if modo_edicion %}
+              <a href="?profesor={{ selected_profesor_id }}" class="btn btn-secondary">Cancelar</a>
+            {% endif %}
+          </div>
+        </form>
+      </div>
     </div>
+  {% endif %}
 
-    <!-- TABLERO SEMANAL -->
-    <h4 class="mt-5 text-primary">Tablero semanal de clases</h4>
+  {% if selected_profesor_id %}
+    <h5 class="mt-4 mb-3">Tablero semanal de clases</h5>
     <div class="table-responsive">
-        <table class="table table-bordered text-center align-middle table-light table-striped shadow-sm rounded">
-            <thead class="table-primary">
-                <tr>
-                    <th>Bloque / Día</th>
-                    {% for dia in dias_nombres %}
-                        <th>{{ dia }}</th>
-                    {% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-            {% for bloque in bloques %}
-                <tr>
-                    <td>
-                        <b>{{ bloque.nombre }}</b><br>
-                        <small>{{ bloque.hora_inicio|time:"H:i" }}-{{ bloque.hora_fin|time:"H:i" }}</small>
-                    </td>
-                    {% for dia in dias %}
-                        {% with clase=matriz|dict_get:dia|dict_get:bloque.id %}
-                        <td>
-                            {% if clase %}
-                                <div class="p-2 rounded border shadow-sm position-relative bg-light-blue" id="clase-{{ clase.id }}" style="background:#e3f2fd; color:#1976d2;">
-                                    <b>{{ clase.seccion.asignatura.nombre }}</b><br>
-                                    <span class="badge bg-primary bg-opacity-75">{{ clase.seccion.nombre }}</span><br>
-                                    <span class="badge bg-info text-dark">
-                                        {{ clase.seccion.relaciones_estudiantes_asignatura.count }} Est.
-                                    </span><br>
-                                    <span class="badge bg-secondary">Aula {{ clase.aula.numero_sala }}</span>
-                                    {% if clase.finalizada %}
-                                        <span class="badge bg-success mt-1">Finalizada</span>
-                                    {% endif %}
-                                    <div class="clase-actions position-absolute end-0 top-0 p-1" style="z-index:10; display:none;">
-                                        <a href="?profesor={{ selected_profesor_id }}&editar={{ clase.id }}" class="btn btn-sm btn-warning me-1" title="Editar"><i class="bi bi-pencil"></i></a>
-                                        <a href="?profesor={{ selected_profesor_id }}&eliminar={{ clase.id }}" class="btn btn-sm btn-danger" title="Eliminar" onclick="return confirm('¿Eliminar esta clase?');"><i class="bi bi-trash"></i></a>
-                                    </div>
-                                </div>
-                            {% else %}
-                                <span style="color:#ccc;">—</span>
-                            {% endif %}
-                        </td>
-                        {% endwith %}
-                    {% endfor %}
-                </tr>
+      <table class="table table-bordered align-middle text-center">
+        <thead class="table-light">
+          <tr>
+            <th>Bloque / Día</th>
+            {% for d in dias_nombres %}
+              <th>{{ d }}</th>
             {% endfor %}
-            </tbody>
-        </table>
+          </tr>
+        </thead>
+        <tbody>
+        {% for bloque in bloques %}
+          <tr>
+            <th style="white-space:nowrap;">
+              {{ bloque.nombre }}<br>
+              <span class="text-muted small">{{ bloque.hora_inicio|time:"H:i" }}-{{ bloque.hora_fin|time:"H:i" }}</span>
+            </th>
+            {% for dia in dias %}
+              {% with clase=matriz|dict_get:dia|dict_get:bloque.id %}
+                <td style="min-width:180px;vertical-align:middle; {% if clase and clase.finalizada %}background:#e9ecef;{% endif %}">
+                  {% if clase %}
+                    <div>
+                      <strong>{{ clase.seccion.asignatura.nombre }}</strong><br>
+                      Sección {{ clase.seccion.nombre }}<br>
+                      <span class="badge bg-info mb-1">
+                        {{ clase_estudiantes|dict_get:clase.id }} Est.
+                      </span>
+                      <br>
+                      <span class="badge bg-secondary">{{ clase.aula.numero_sala }} - {{ clase.aula.sede }}</span><br>
+                      {% if clase.finalizada %}
+                        <span class="badge bg-success">Finalizada</span>
+                      {% endif %}
+                    </div>
+                    <div class="mt-2">
+                      <a href="?profesor={{ selected_profesor_id }}&editar={{ clase.id }}" class="btn btn-sm btn-outline-primary">Editar</a>
+                      <a href="?profesor={{ selected_profesor_id }}&eliminar={{ clase.id }}" class="btn btn-sm btn-outline-danger"
+                         onclick="return confirm('¿Seguro que quieres eliminar esta clase?');">Eliminar</a>
+                    </div>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+              {% endwith %}
+            {% endfor %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
     </div>
+    <!-- BOTÓN PARA PUBLICAR/FIJAR HORARIO -->
+    <form method="post" class="mt-4 d-flex justify-content-end">
+      {% csrf_token %}
+      <input type="hidden" name="accion" value="publicar_horario">
+      <input type="hidden" name="profesor" value="{{ selected_profesor_id }}">
+      <button class="btn btn-primary" type="submit">
+        <i class="bi bi-calendar-check"></i> Fijar/Asignar horario al profesor
+      </button>
+    </form>
+  {% endif %}
 </div>
-<style>
-    .position-relative:hover .clase-actions { display: block; }
-</style>
+
+
+
 <script>
-    window.GET_ASIGNATURAS_AJAX_URL = "{% url 'get_asignaturas_ajax' %}";
-    window.GET_SECCIONES_AJAX_URL = "{% url 'get_secciones_ajax' %}";
+document.addEventListener('DOMContentLoaded', function () {
+    const carreraField = document.getElementById('id_carrera');
+    const asignaturaField = document.getElementById('id_asignatura');
+    const seccionField = document.getElementById('id_seccion');
+
+    if (carreraField) {
+        carreraField.addEventListener('change', function () {
+            fetch(`/clases/get_asignaturas_ajax/?carrera_id=${this.value}`)
+                .then(res => res.json())
+                .then(data => {
+                    asignaturaField.innerHTML = '<option value="">---------</option>';
+                    data.forEach(function (item) {
+                        asignaturaField.innerHTML += `<option value="${item.id}">${item.nombre}</option>`;
+                    });
+                    seccionField.innerHTML = '<option value="">---------</option>';
+                });
+        });
+    }
+
+    if (asignaturaField) {
+        asignaturaField.addEventListener('change', function () {
+            fetch(`/clases/get_secciones_ajax/?asignatura_id=${this.value}`)
+                .then(res => res.json())
+                .then(data => {
+                    seccionField.innerHTML = '<option value="">---------</option>';
+                    data.forEach(function (item) {
+                        seccionField.innerHTML += `<option value="${item.id}">${item.nombre}</option>`;
+                    });
+                });
+        });
+    }
+});
 </script>
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        var carrera = document.getElementById('id_carrera');
-        var asignatura = document.getElementById('id_asignatura');
-        var seccion = document.getElementById('id_seccion');
-        if (carrera) {
-            carrera.addEventListener('change', function() {
-                var carrera_id = this.value;
-                asignatura.innerHTML = '<option value="">---------</option>';
-                seccion.innerHTML = '<option value="">---------</option>';
-                if (carrera_id) {
-                    fetch(window.GET_ASIGNATURAS_AJAX_URL + '?carrera_id=' + carrera_id)
-                        .then(response => response.json())
-                        .then(data => {
-                            data.forEach(function(obj) {
-                                asignatura.innerHTML += '<option value="'+obj.id+'">'+obj.nombre+'</option>';
-                            });
-                        });
-                }
-            });
-        }
-        if (asignatura) {
-            asignatura.addEventListener('change', function() {
-                var asignatura_id = this.value;
-                seccion.innerHTML = '<option value="">---------</option>';
-                if (asignatura_id) {
-                    fetch(window.GET_SECCIONES_AJAX_URL + '?asignatura_id=' + asignatura_id)
-                        .then(response => response.json())
-                        .then(data => {
-                            data.forEach(function(obj) {
-                                seccion.innerHTML += '<option value="'+obj.id+'">'+obj.nombre+'</option>';
-                            });
-                        });
-                }
-            });
-        }
-    });
-</script>
+
 {% endblock %}

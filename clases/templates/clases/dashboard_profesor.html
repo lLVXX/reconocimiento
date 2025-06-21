@@ -1,44 +1,146 @@
 {% extends 'core/base.html' %}
+{% load static %}
+
 {% block content %}
 <div class="container mt-4">
-    <h2 class="mb-4">Mis Clases</h2>
-    <table class="table table-bordered table-striped mt-3">
-        <thead class="table-dark">
-            <tr>
-                <th>Día</th>
-                <th>Bloque Horario</th>
-                <th>Sede</th>
-                <th>Sala</th>
-                <th>Asignatura</th>
-                <th>Sección</th>
-                <th>Carrera</th>
-                <th>N° Estudiantes</th>
-                <th>Acción</th> <!-- Nueva columna -->
-            </tr>
+  <h2>Dashboard Profesor</h2>
+  <div class="row g-3 mb-4">
+    <div class="col-md-3">
+      <div class="card text-bg-primary shadow">
+        <div class="card-body">
+          <h5 class="card-title">Clases Totales</h5>
+          <h2>{{ total_clases }}</h2>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-bg-success shadow">
+        <div class="card-body">
+          <h5 class="card-title">Clases Finalizadas</h5>
+          <h2>{{ finalizadas }}</h2>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-bg-warning shadow">
+        <div class="card-body">
+          <h5 class="card-title">Clases Activas</h5>
+          <h2>{{ activas }}</h2>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card text-bg-info shadow">
+        <div class="card-body">
+          <h5 class="card-title">Total Asistencias</h5>
+          <h2>{{ total_asistencias }}</h2>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4 mb-4">
+    <div class="col-md-7">
+      <div class="card shadow">
+        <div class="card-header bg-light">
+          <strong>Asistencias por Semana (últimas 6)</strong>
+        </div>
+        <div class="card-body">
+          <canvas id="asistenciaSemanaChart"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-5">
+      <div class="card shadow">
+        <div class="card-header bg-light">
+          <strong>Totales Asistencia</strong>
+        </div>
+        <div class="card-body">
+          <ul class="list-group">
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+              Presentes <span class="badge bg-success rounded-pill">{{ total_presentes }}</span>
+            </li>
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+              Ausentes <span class="badge bg-danger rounded-pill">{{ total_ausentes }}</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow mb-4">
+    <div class="card-header bg-light"><strong>Historial Últimas 10 Clases</strong></div>
+    <div class="card-body table-responsive">
+      <table class="table table-striped align-middle">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Asignatura</th>
+            <th>Sección</th>
+            <th>Bloque</th>
+            <th>Aula</th>
+            <th>Finalizada</th>
+            <th>Detalle</th>
+          </tr>
         </thead>
         <tbody>
-            {% for clase in clases %}
-                <tr>
-                    <td>{{ clase.get_dia_semana_display }}</td>
-                    <td>{{ clase.bloque_horario }}</td>
-                    <td>{{ clase.aula.sede.nombre }}</td>
-                    <td>{{ clase.aula.numero_sala }}</td>
-                    <td>{{ clase.seccion.asignatura.nombre }}</td>
-                    <td>{{ clase.seccion.nombre }}</td>
-                    <td>{{ clase.seccion.asignatura.carrera.nombre }}</td>
-                    <td>{{ clase.seccion.relaciones_estudiantes_asignatura.count }}</td>
-                    <td>
-                        <a href="{% url 'detalle_clase' clase.id %}" class="btn btn-info btn-sm">
-                            Ver Detalle
-                        </a>
-                    </td>
-                </tr>
-            {% empty %}
-                <tr>
-                    <td colspan="9">No tienes clases asignadas.</td>
-                </tr>
-            {% endfor %}
+          {% for clase in clases_historial %}
+          <tr>
+            <td>{{ clase.fecha|date:"d/m/Y" }}</td>
+            <td>{{ clase.seccion.asignatura.nombre }}</td>
+            <td>{{ clase.seccion.nombre }}</td>
+            <td>{{ clase.bloque_horario.nombre }}</td>
+            <td>{{ clase.aula.numero_sala }}</td>
+            <td>
+              {% if clase.finalizada %}
+                <span class="badge bg-success">Sí</span>
+              {% else %}
+                <span class="badge bg-warning">No</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{% url 'detalle_clase' clase.id %}" class="btn btn-sm btn-outline-primary">Ver</a>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="7">Sin clases registradas.</td>
+          </tr>
+          {% endfor %}
         </tbody>
-    </table>
+      </table>
+    </div>
+  </div>
 </div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  var ctx = document.getElementById('asistenciaSemanaChart').getContext('2d');
+  var asistenciaSemanaChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: {{ semanas|safe }},
+      datasets: [
+        {
+          label: 'Presentes',
+          data: {{ datos_presentes|safe }},
+          backgroundColor: 'rgba(40, 167, 69, 0.7)'
+        },
+        {
+          label: 'Ausentes',
+          data: {{ datos_ausentes|safe }},
+          backgroundColor: 'rgba(220, 53, 69, 0.7)'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+</script>
 {% endblock %}

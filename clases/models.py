@@ -34,6 +34,8 @@ class Clase(models.Model):
     profesor = models.ForeignKey(CustomUser, on_delete=models.CASCADE, limit_choices_to={'user_type': 'profesor'})
     seccion = models.ForeignKey(Seccion, on_delete=models.CASCADE)
 
+    publicada = models.BooleanField(default=False)  # <-- NUEVO
+    
     fecha = models.DateField(null=True, blank=True)
     fecha_finalizacion = models.DateTimeField(null=True, blank=True)
     semana_academica = models.ForeignKey(

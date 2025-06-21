@@ -86,30 +86,25 @@ class ClaseForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
-        if user and hasattr(user, "sede"):
+        # Carga carreras de la sede del usuario
+        if user and hasattr(user, "sede") and user.sede:
             self.fields['carrera'].queryset = Carrera.objects.filter(sede=user.sede)
             self.fields['aula'].queryset = Aula.objects.filter(sede=user.sede)
         else:
             self.fields['carrera'].queryset = Carrera.objects.all()
             self.fields['aula'].queryset = Aula.objects.all()
-        carrera_id = (
-            self.data.get('carrera')
-            or (self.initial.get('carrera').id if self.initial.get('carrera') else None)
-            or (self.instance.seccion.asignatura.carrera.id if getattr(self.instance, 'seccion', None) else None)
-        )
+        # Determina el contexto de los selects dependientes
+        carrera_id = self.data.get('carrera') or self.initial.get('carrera') or None
         if carrera_id:
             self.fields['asignatura'].queryset = Asignatura.objects.filter(carrera_id=carrera_id)
         else:
             self.fields['asignatura'].queryset = Asignatura.objects.none()
-        asignatura_id = (
-            self.data.get('asignatura')
-            or (self.initial.get('asignatura').id if self.initial.get('asignatura') else None)
-            or (self.instance.seccion.asignatura.id if getattr(self.instance, 'seccion', None) else None)
-        )
+        asignatura_id = self.data.get('asignatura') or self.initial.get('asignatura') or None
         if asignatura_id:
             self.fields['seccion'].queryset = Seccion.objects.filter(asignatura_id=asignatura_id)
         else:
             self.fields['seccion'].queryset = Seccion.objects.none()
+            
 #################### ASIS MANUAL #############3
 
 

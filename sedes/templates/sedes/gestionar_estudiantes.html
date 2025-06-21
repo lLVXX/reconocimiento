@@ -6,11 +6,9 @@
   <h2>Gestionar Estudiantes</h2>
 
   {% if messages %}
-  {% for message in messages %}
-  <div class="alert alert-{{ message.tags }}">
-    {{ message }}
-  </div>
-  {% endfor %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+    {% endfor %}
   {% endif %}
 
   <div class="card mb-4">
@@ -18,36 +16,25 @@
     <div class="card-body">
       <form method="POST" enctype="multipart/form-data">
         {% csrf_token %}
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger">
+            {{ form.non_field_errors }}
+          </div>
+        {% endif %}
         <div class="row">
-          <div class="col-md-6">
-            {{ form.first_name.label_tag }}
-            {{ form.first_name }}
-          </div>
-          <div class="col-md-6">
-            {{ form.last_name.label_tag }}
-            {{ form.last_name }}
-          </div>
+          <div class="col-md-6">{{ form.first_name.label_tag }}{{ form.first_name }}</div>
+          <div class="col-md-6">{{ form.last_name.label_tag }}{{ form.last_name }}</div>
+        </div>
+        <div class="row mt-3">
+          <div class="col-md-6">{{ form.rut.label_tag }}{{ form.rut }}</div>
+          <div class="col-md-6">{{ form.carrera.label_tag }}{{ form.carrera }}</div>
         </div>
         <div class="row mt-3">
           <div class="col-md-6">
-            {{ form.rut.label_tag }}
-            {{ form.rut }}
-          </div>
-          <div class="col-md-6">
-            {{ form.carrera.label_tag }}
-            {{ form.carrera }}
-          </div>
-        </div>
-        <div class="row mt-3">
-          <div class="col-md-6">
-            {{ form.imagen.label_tag }}
-            {{ form.imagen }}
+            {{ form.imagen.label_tag }}{{ form.imagen }}
             <img id="preview" src="#" alt="Previsualización" class="img-thumbnail mt-2" style="max-height: 150px; display: none;">
           </div>
-          <div class="col-md-6">
-            {{ form.motivo_cambio.label_tag }}
-            {{ form.motivo_cambio }}
-          </div>
+          <div class="col-md-6">{{ form.motivo_cambio.label_tag }}{{ form.motivo_cambio }}</div>
         </div>
         <div class="mt-3">
           <button type="submit" class="btn btn-success">Guardar</button>
@@ -80,8 +67,10 @@
         <td>{{ estudiante.carrera }}</td>
         <td>
           <ul>
-          {% for rel in estudiante.asignaturas_seccion.all %}
-            <li><b>{{ rel.asignatura.nombre }}</b>: {{ rel.seccion.nombre }}</li>
+          {% for rel in relaciones %}
+            {% if rel.estudiante_id == estudiante.id %}
+              <li><b>{{ rel.asignatura.nombre }}</b>: {{ rel.seccion.nombre }}</li>
+            {% endif %}
           {% endfor %}
           </ul>
         </td>
@@ -100,64 +89,6 @@
       {% endfor %}
     </tbody>
   </table>
-
-
-
-  <table class="table table-striped">
-    <thead>
-      <tr>
-        <th>Nombre</th>
-        <th>Apellido</th>
-        <th>Correo</th>
-        <th>RUT</th>
-        <th>Carrera</th>
-        <th>Asignaturas y Sección</th>
-        <th>Imagen</th>
-        <th>Acciones</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for estudiante in estudiantes %}
-      <tr>
-        <td>{{ estudiante.first_name }}</td>
-        <td>{{ estudiante.last_name }}</td>
-        <td>{{ estudiante.email }}</td>
-        <td>{{ estudiante.rut }}</td>
-        <td>{{ estudiante.carrera }}</td>
-        <td>
-          {% for rel in estudiante.asignaturas_seccion.all %}
-            {{ rel.asignatura.nombre }} ({{ rel.seccion.nombre }})<br>
-          {% empty %}
-            <span class="text-danger">Sin asignaturas enroladas</span>
-          {% endfor %}
-        </td>
-        <td>
-          {% if estudiante.imagen %}
-          <a href="{{ estudiante.imagen.url }}" target="_blank">
-            <img src="{{ estudiante.imagen.url }}" class="img-thumbnail" style="height: 60px;">
-          </a>
-          {% else %}-{% endif %}
-        </td>
-        <td>
-          <a href="?editar={{ estudiante.id }}" class="btn btn-sm btn-primary">Editar</a>
-          <a href="?eliminar={{ estudiante.id }}" class="btn btn-sm btn-danger" onclick="return confirm('Seguro de eliminar?');">Eliminar</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-</table>
-
-
-<td>
-  {% for rel in estudiante.asignaturas_seccion.all %}
-    {{ rel.asignatura.nombre }} ({{ rel.seccion.nombre }})<br>
-  {% empty %}
-    <span class="text-danger">Sin asignaturas enroladas</span>
-  {% endfor %}
-</td>
-
-
-
 </div>
 
 <script>

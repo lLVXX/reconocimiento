@@ -8,8 +8,8 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from .forms import CarreraForm
 from django.contrib.auth.decorators import login_required, user_passes_test
-
-
+from django.http import JsonResponse
+from django import forms
 import requests
 import numpy as np
 
@@ -304,8 +304,20 @@ def gestionar_profesores(request):
 
 #####################################
 
+
+
+
+
+
+
+
+
 @login_required
 def gestionar_estudiantes(request):
+    from personas.forms import EstudianteForm
+    from core.models import CustomUser
+    from personas.models import EstudianteAsignaturaSeccion
+
     editar_id = request.GET.get("editar")
     eliminar_id = request.GET.get("eliminar")
 
@@ -324,18 +336,77 @@ def gestionar_estudiantes(request):
 
     if request.method == 'POST':
         if form.is_valid():
-            estudiante = form.save()
-            messages.success(request, "Estudiante guardado exitosamente.")
-            return redirect('gestionar_estudiantes')
+            try:
+                estudiante = form.save()
+                messages.success(request, "Estudiante guardado exitosamente.")
+                return redirect('gestionar_estudiantes')
+            except forms.ValidationError as e:
+                form.add_error(None, e)
+                messages.error(request, "Error: " + "; ".join(e.messages))
+            except Exception as e:
+                form.add_error(None, str(e))
+                messages.error(request, f"Error inesperado: {e}")
         else:
             messages.error(request, "Error al procesar el formulario. Revisa los datos.")
 
     estudiantes = CustomUser.objects.filter(user_type='estudiante', sede=request.user.sede)
+    relaciones = EstudianteAsignaturaSeccion.objects.select_related('asignatura', 'seccion', 'estudiante')
+
     return render(request, 'sedes/gestionar_estudiantes.html', {
         'form': form,
         'estudiantes': estudiantes,
         'editar_id': editar_id,
+        'relaciones': relaciones,
     })
+
+# --- AJAX: Asignaturas y Secciones por Carrera ---
+@login_required
+def ajax_asignaturas_secciones(request):
+    carrera_id = request.GET.get('carrera_id')
+    data = []
+    if carrera_id:
+        asignaturas = Asignatura.objects.filter(carrera_id=carrera_id)
+        for asignatura in asignaturas:
+            secciones = Seccion.objects.filter(asignatura=asignatura).values('id', 'nombre')
+            data.append({
+                'asignatura': asignatura.nombre,
+                'secciones': list(secciones),
+            })
+    return JsonResponse({'asignaturas': data})
+
+
+
+
+
+
+
+
+
+##################################
+
+
+
+
+
+
+
+
+
+@login_required
+def ajax_asignaturas_secciones(request):
+    carrera_id = request.GET.get('carrera_id')
+    data = []
+    if carrera_id:
+        asignaturas = Asignatura.objects.filter(carrera_id=carrera_id)
+        for asignatura in asignaturas:
+            secciones = Seccion.objects.filter(asignatura=asignatura).values('id', 'nombre')
+            data.append({
+                'asignatura': asignatura.nombre,
+                'secciones': list(secciones),
+            })
+    return JsonResponse({'asignaturas': data})
+
+
 
 
 ####################################

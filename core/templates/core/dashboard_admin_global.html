@@ -1,7 +1,126 @@
-{% extends 'core/base.html' %}
+{% extends "core/base.html" %}
+{% load static %}
+
 {% block content %}
-<div class="container mt-5">
-    <h2>Bienvenido, {{ user.username }}</h2>
-    <p>Este es tu panel de administración global.</p>
+<div class="container mt-4">
+
+  <h2 class="mb-4">Dashboard Global — Administración</h2>
+
+
+  <div class="d-flex justify-content-end mb-3">
+  <a href="{% url 'exportar_dashboard_pdf' %}?{% if sede_actual %}sede={{ sede_actual.id }}&{% endif %}{% if carrera_actual %}carrera={{ carrera_actual.id }}&{% endif %}" 
+     class="btn btn-outline-danger" target="_blank">
+    <i class="bi bi-file-earmark-pdf"></i> Exportar PDF
+  </a>
+</div>
+
+  <!-- FILTROS -->
+  <form method="get" class="row mb-4 align-items-end">
+    <div class="col-md-4">
+      <label class="form-label">Sede</label>
+      <select class="form-select" name="sede" id="filtroSede" onchange="this.form.submit()">
+        <option value="">-- Todas las sedes --</option>
+        {% for sede in sedes %}
+          <option value="{{ sede.id }}" {% if sede_actual and sede_actual.id == sede.id %}selected{% endif %}>{{ sede.nombre }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Carrera</label>
+      <select class="form-select" name="carrera" id="filtroCarrera" onchange="this.form.submit()">
+        <option value="">-- Todas las carreras --</option>
+        {% for carrera in carreras %}
+          <option value="{{ carrera.id }}" {% if carrera_actual and carrera_actual.id == carrera.id %}selected{% endif %}>
+            {{ carrera.nombre }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4">
+      <button class="btn btn-primary" type="submit">Filtrar</button>
+      {% if sede_actual or carrera_actual %}
+        <a href="{% url 'dashboard_admin_global' %}" class="btn btn-outline-secondary ms-2">Limpiar filtros</a>
+      {% endif %}
+    </div>
+  </form>
+
+  <!-- TARJETAS MÉTRICAS -->
+  <div class="row mb-4">
+    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Sedes</b><div class="fs-3">{{ total_sedes }}</div></div></div>
+    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Carreras</b><div class="fs-3">{{ total_carreras }}</div></div></div>
+    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Asignaturas</b><div class="fs-3">{{ total_asignaturas }}</div></div></div>
+    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Secciones</b><div class="fs-3">{{ total_secciones }}</div></div></div>
+  </div>
+  <div class="row mb-4">
+    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Profesores</b><div class="fs-3">{{ total_profesores }}</div></div></div>
+    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Estudiantes</b><div class="fs-3">{{ total_estudiantes }}</div></div></div>
+    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Clases agendadas</b><div class="fs-3">{{ total_clases }}</div></div></div>
+    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Clases finalizadas</b><div class="fs-3">{{ total_clases_finalizadas }}</div></div></div>
+  </div>
+  <div class="row mb-4">
+    <div class="col-md-4"><div class="card p-3 text-center shadow-sm"><b>Asistencias totales</b><div class="fs-3">{{ total_asistencias }}</div></div></div>
+    <div class="col-md-4"><div class="card p-3 text-center shadow-sm"><b>% Asistencia global</b><div class="fs-3">{{ porcentaje_asistencia|floatformat:1 }}%</div></div></div>
+  </div>
+
+  <!-- SEDE DRILLDOWN -->
+  <h4 class="mt-5 mb-3">Estadísticas por sede</h4>
+  <div class="table-responsive">
+    <table class="table table-striped table-hover align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Sede</th>
+          <th>Carreras</th>
+          <th>Asignaturas</th>
+          <th>Secciones</th>
+          <th>Profesores</th>
+          <th>Estudiantes</th>
+          <th>Clases</th>
+          <th>Finalizadas</th>
+          <th>% Asistencia</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in sedes_stats %}
+        <tr>
+          <td><b>{{ s.sede.nombre }}</b></td>
+          <td>{{ s.carreras }}</td>
+          <td>{{ s.asignaturas }}</td>
+          <td>{{ s.secciones }}</td>
+          <td>{{ s.profesores }}</td>
+          <td>{{ s.estudiantes }}</td>
+          <td>{{ s.clases }}</td>
+          <td>{{ s.clases_finalizadas }}</td>
+          <td>{{ s.porc_asistencia|floatformat:1 }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ASIGNATURAS RANKING -->
+  <h4 class="mt-5 mb-3">Top 10 Asignaturas por cantidad de estudiantes</h4>
+  <div class="table-responsive">
+    <table class="table table-bordered align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Asignatura</th>
+          <th>Carrera</th>
+          <th>Sede</th>
+          <th>Estudiantes Inscritos</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in asignaturas_ranking %}
+        <tr>
+          <td>{{ a.nombre }}</td>
+          <td>{{ a.carrera.nombre }}</td>
+          <td>{{ a.carrera.sede.nombre }}</td>
+          <td>{{ a.num_estudiantes }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
 </div>
 {% endblock %}

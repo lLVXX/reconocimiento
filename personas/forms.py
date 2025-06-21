@@ -73,6 +73,7 @@ def generar_nombre_seccion(asignatura):
             if nombre not in existentes:
                 return nombre
 
+
 class EstudianteForm(forms.ModelForm):
     carrera = forms.ModelChoiceField(
         queryset=Carrera.objects.none(),
@@ -102,17 +103,18 @@ class EstudianteForm(forms.ModelForm):
         correo = f"{nombre[:2]}.{apellido}@{estudiante.sede.nombre.lower().replace(' ', '')}.com"
         estudiante.email = correo
         estudiante.username = correo
-        estudiante.set_password('12345678')
+        if not self.instance.pk:
+            estudiante.set_password('12345678')
 
         if commit:
             estudiante.save()
-            # === FOTO BASE Y EMBEDDING SOLO SI NO EXISTE YA ===
+            # FOTO BASE Y EMBEDDING SOLO SI NO EXISTE YA
             imagen_file = self.cleaned_data.get('imagen')
-            if imagen_file and not estudiante.fotos.filter(es_base=True).exists():
+            if imagen_file and not EstudianteFoto.objects.filter(estudiante=estudiante, es_base=True).exists():
                 imagen_file.seek(0)
                 embedding = obtener_embedding_desde_microservicio(imagen_file)
                 if embedding is None:
-                    raise forms.ValidationError("No se detectó rostro en la imagen.")
+                    raise forms.ValidationError("No se detectó rostro en la imagen o el microservicio no respondió correctamente.")
                 foto_base = EstudianteFoto(
                     estudiante=estudiante,
                     imagen=imagen_file,
@@ -121,7 +123,7 @@ class EstudianteForm(forms.ModelForm):
                 )
                 foto_base.save()
                 imagen_file.seek(0)
-            # === ASIGNACIÓN DE SECCIONES (SIN CAMBIOS) ===
+            # ASIGNACIÓN DE SECCIONES
             asignaturas = Asignatura.objects.filter(carrera=estudiante.carrera)
             for asignatura in asignaturas:
                 secciones = Seccion.objects.filter(asignatura=asignatura).annotate(
@@ -133,7 +135,7 @@ class EstudianteForm(forms.ModelForm):
                         seccion_asignada = seccion
                         break
                 if not seccion_asignada:
-                    nombre_seccion = generar_nombre_seccion(asignatura)
+                    nombre_seccion = f"{asignatura.nombre[:6]}-{asignatura.id}A"
                     seccion_asignada = Seccion.objects.create(nombre=nombre_seccion, asignatura=asignatura)
                 EstudianteAsignaturaSeccion.objects.get_or_create(
                     estudiante=estudiante,
@@ -142,8 +144,6 @@ class EstudianteForm(forms.ModelForm):
                 )
             self.save_m2m()
         return estudiante
-
-
 
 # ------------------------------------------------------------
 # Formularios auxiliares para CRUD
