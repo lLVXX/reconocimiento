@@ -1,0 +1,57 @@
+{% extends 'core/base.html' %}
+{% load static %}
+{% load dict_extras %}
+{% block content %}
+<div class="container mt-4">
+    <h3>Mi horario semanal</h3>
+    <form method="get" class="mb-3">
+        <label>Semana:</label>
+        <select name="semana" onchange="this.form.submit()" class="form-select d-inline w-auto">
+            {% for semana in semanas %}
+                <option value="{{ semana.id }}" {% if semana.id == semana_seleccionada.id %}selected{% endif %}>
+                    Semana {{ semana.numero }} ({{ semana.fecha_inicio|date:"d/m" }} - {{ semana.fecha_fin|date:"d/m" }}) - {{ semana.get_tipo_display }}
+                </option>
+            {% endfor %}
+        </select>
+    </form>
+    {% if semana_seleccionada.tipo != "clases" %}
+        <div class="alert alert-warning">
+            Esta semana es de tipo: <b>{{ semana_seleccionada.get_tipo_display }}</b> (No hay clases regulares).
+        </div>
+    {% endif %}
+    <table class="table table-bordered text-center align-middle table-light table-striped">
+        <thead class="table-primary">
+            <tr>
+                <th>Bloque / Día</th>
+                {% for dia in dias %}
+                    <th>{{ dia }}</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+        {% for bloque in bloques %}
+            <tr>
+                <td><b>{{ bloque.nombre }}</b><br><small>{{ bloque.hora_inicio|time:"H:i" }}-{{ bloque.hora_fin|time:"H:i" }}</small></td>
+                {% for dia in dias %}
+                    <td>
+                        {% with clase=matriz|dict_get:dia|dict_get:bloque.id %}
+                        {% if clase %}
+                            <div>
+                                <b>{{ clase.seccion.asignatura.nombre }}</b>
+                                <br>
+                                <span class="badge bg-secondary">Aula {{ clase.aula.numero_sala }}</span>
+                                <br>
+                                <span>{{ clase.fecha|date:"d/m/Y" }}</span>
+                            </div>
+                        {% else %}
+                            —
+                        {% endif %}
+                        {% endwith %}
+                    </td>
+                {% endfor %}
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

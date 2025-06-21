@@ -4,8 +4,7 @@ from django import forms
 from django.contrib.auth import authenticate
 from django.core.exceptions import ValidationError
 import re
-
-
+from .models import CalendarioAcademico,SemanaAcademica
 from core.models import CustomUser
 from sedes.models import Sede
 
@@ -71,3 +70,43 @@ class AdminZonaForm(forms.ModelForm):
     class Meta:
         model = CustomUser
         fields = ['nombre', 'apellido', 'rut', 'sede']
+
+
+########## Calendario ############
+
+
+class CalendarioWizardForm(forms.Form):
+    sede = forms.ModelChoiceField(queryset=None)
+    nombre = forms.CharField(label="Nombre del Calendario", max_length=100)
+    fecha_inicio = forms.DateField(label="Fecha de inicio del semestre", widget=forms.DateInput(attrs={'type':'date'}))
+    semanas = forms.IntegerField(label="Cantidad de semanas", initial=18, min_value=1, max_value=25)
+
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+        # Limita a sede del admin_zona, o todas si admin_global
+        if user and hasattr(user, 'sede') and user.user_type == 'admin_zona':
+            self.fields['sede'].queryset = Sede.objects.filter(id=user.sede.id)
+            self.fields['sede'].initial = user.sede
+            self.fields['sede'].widget = forms.HiddenInput()
+        else:
+            self.fields['sede'].queryset = Sede.objects.all()
+
+
+#######################
+
+class CalendarioGlobalForm(forms.Form):
+    nombre = forms.CharField(label="Nombre del Calendario", max_length=100)
+    fecha_inicio = forms.DateField(label="Fecha de inicio", widget=forms.DateInput(attrs={'type': 'date'}))
+    semanas = forms.IntegerField(label="Cantidad de semanas", min_value=1, max_value=25, initial=18)
+
+
+class EditarCalendarioForm(forms.ModelForm):
+    class Meta:
+        model = CalendarioAcademico
+        fields = ['nombre', 'fecha_inicio', 'fecha_fin']
+
+class EditarSemanaForm(forms.ModelForm):
+    class Meta:
+        model = SemanaAcademica
+        fields = ['numero', 'fecha_inicio', 'fecha_fin', 'tipo', 'descripcion']

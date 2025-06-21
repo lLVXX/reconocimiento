@@ -1,0 +1,55 @@
+{% extends 'core/base.html' %}
+{% load dict_extras %}
+{% block content %}
+<div class="container mt-4">
+  <h2>Reporte de Clase</h2>
+  <p><b>Sede:</b> {{ clase.aula.sede.nombre }}</p>
+  <p><b>Asignatura:</b> {{ clase.seccion.asignatura.nombre }}</p>
+  <p><b>Sección:</b> {{ clase.seccion.nombre }}</p>
+  <p><b>Carrera:</b> {{ clase.seccion.asignatura.carrera.nombre }}</p>
+  <p><b>Profesor:</b> {{ clase.profesor.get_full_name }}</p>
+  <p><b>Fecha:</b> {{ clase.fecha|date:"d/m/Y" }}</p>
+  <p><b>Horario:</b> {{ clase.bloque_horario }}</p>
+  <p><b>Finalizada el:</b> {{ clase.fecha_finalizacion|date:"d/m/Y H:i" }}</p>
+
+  <hr>
+  <h4>Resumen Asistencia</h4>
+  <p><b>Total estudiantes:</b> {{ total }}</p>
+  <p><b>Presentes:</b> {{ presentes }}</p>
+  <p><b>Ausentes:</b> {{ ausentes }}</p>
+  <p><b>Porcentaje asistencia:</b> {{ porcentaje|floatformat:2 }}%</p>
+  <h5>Detalle</h5>
+  <table class="table table-bordered">
+    <thead>
+      <tr>
+        <th>Nombre</th>
+        <th>RUT</th>
+        <th>Asistencia</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for est in estudiantes %}
+      <tr>
+        <td>
+          {% if est.get_full_name %}{{ est.get_full_name }}{% else %}{{ est.first_name }} {{ est.last_name }}{% endif %}
+        </td>
+        <td>{{ est.rut }}</td>
+        <td>
+          {% with asis=asistencias|dict_get:est.id %}
+            {% if asis %}
+              {% if asis.presente %}
+                <span class="badge bg-success">Presente</span>
+              {% else %}
+                <span class="badge bg-danger">Ausente</span>
+              {% endif %}
+            {% else %}
+              <span class="badge bg-secondary">Sin marcar</span>
+            {% endif %}
+          {% endwith %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

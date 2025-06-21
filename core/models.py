@@ -35,4 +35,36 @@ class CustomUser(AbstractUser):
 
 ##################################################################
 
+######## CALENDARIO ACADEMICO ###############
 
+
+class CalendarioAcademico(models.Model):
+    sede = models.ForeignKey(Sede, on_delete=models.CASCADE, related_name='calendarios')
+    nombre = models.CharField(max_length=100)
+    fecha_inicio = models.DateField()
+    fecha_fin = models.DateField()
+
+    def __str__(self):
+        return f"{self.nombre} - {self.sede.nombre}"
+
+######## SEMANA ACADEMICA ###############
+
+class SemanaAcademica(models.Model):
+    calendario = models.ForeignKey(CalendarioAcademico, on_delete=models.CASCADE, related_name='semanas')
+    numero = models.PositiveSmallIntegerField()
+    fecha_inicio = models.DateField()
+    fecha_fin = models.DateField()
+    tipo = models.CharField(
+        max_length=20,
+        choices=[
+            ('clases', 'Clases'),
+            ('receso', 'Receso'),
+            ('examenes', 'Exámenes'),
+            ('feriado', 'Feriado')
+        ],
+        default='clases'
+    )
+    descripcion = models.CharField(max_length=200, blank=True)
+
+    def __str__(self):
+        return f"{self.calendario} - Semana {self.numero} ({self.get_tipo_display()})"

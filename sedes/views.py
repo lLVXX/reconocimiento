@@ -3,7 +3,7 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from .models import Sede, Carrera
 from .forms import SedeForm
-from core.utils import admin_global_required
+from core.decorators import admin_global_required
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from .forms import CarreraForm
@@ -304,8 +304,6 @@ def gestionar_profesores(request):
 
 #####################################
 
-
-
 @login_required
 def gestionar_estudiantes(request):
     editar_id = request.GET.get("editar")
@@ -326,7 +324,6 @@ def gestionar_estudiantes(request):
 
     if request.method == 'POST':
         if form.is_valid():
-            # Solo crea foto base y embedding si el estudiante NO la tiene aún
             estudiante = form.save()
             messages.success(request, "Estudiante guardado exitosamente.")
             return redirect('gestionar_estudiantes')
@@ -334,12 +331,12 @@ def gestionar_estudiantes(request):
             messages.error(request, "Error al procesar el formulario. Revisa los datos.")
 
     estudiantes = CustomUser.objects.filter(user_type='estudiante', sede=request.user.sede)
-
     return render(request, 'sedes/gestionar_estudiantes.html', {
         'form': form,
         'estudiantes': estudiantes,
         'editar_id': editar_id,
     })
+
 
 ####################################
 

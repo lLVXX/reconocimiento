@@ -39,46 +39,59 @@
                     {% endif %}
                 </li>
 
+                <!-- Menú Profesor -->
+                {% if user.user_type == 'profesor' %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'horario_profesor' %}"><i class="bi bi-calendar-week"></i> Mi Horario</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'historial_clases' %}"><i class="bi bi-clock-history"></i> Historial de Clases</a>
+                    </li>
+                {% endif %}
+
                 <!-- Menú Admin Zona -->
                 {% if user.user_type == 'admin_zona' %}
-                <li class="nav-item dropdown">
-                    <a class="nav-link dropdown-toggle" href="#" id="gestionarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                        <i class="bi bi-tools"></i> Gestionar
-                    </a>
-                    <ul class="dropdown-menu" aria-labelledby="gestionarDropdown">
-                        <li><a class="dropdown-item" href="{% url 'gestionar_carreras' %}"><i class="bi bi-diagram-3"></i> Carreras</a></li>
-                        <li><a class="dropdown-item" href="{% url 'gestionar_asignaturas' %}"><i class="bi bi-book"></i> Asignaturas</a></li>
-                        <li><a class="dropdown-item" href="{% url 'gestionar_secciones' %}"><i class="bi bi-list-ol"></i> Secciones</a></li>
-                        <li><a class="dropdown-item" href="{% url 'gestionar_profesores' %}"><i class="bi bi-person"></i> Profesores</a></li>
-                        <li><a class="dropdown-item" href="{% url 'gestionar_estudiantes' %}"><i class="bi bi-person"></i> Estudiantes</a></li>
-                        <li><a class="dropdown-item" href="{% url 'gestionar_bloques_horarios' %}"><i class="bi bi-clock"></i> Bloques Horarios</a></li>
-                        <li><a class="dropdown-item" href="{% url 'gestionar_aulas' %}"><i class="bi bi-door-open"></i> Aulas</a></li>
-                        <li><a class="dropdown-item" href="{% url 'gestionar_clases' %}"><i class="bi bi-easel"></i> Clases</a></li>
-                        <li><a class="dropdown-item" href="{% url 'resumen_secciones' %}"><i class="bi bi-list-check"></i> Resumen Secciones</a></li>
-                        <li><a class="dropdown-item" href="{% url 'listar_estudiantes_secciones' %}"><i class="bi bi-list-nested"></i> Listar Estudiantes-Secciones</a></li>
-                    </ul>
-                </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="gestionarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-tools"></i> Gestionar
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="gestionarDropdown">
+                            <li><a class="dropdown-item" href="{% url 'gestionar_carreras' %}"><i class="bi bi-diagram-3"></i> Carreras</a></li>
+                            <li><a class="dropdown-item" href="{% url 'gestionar_asignaturas' %}"><i class="bi bi-book"></i> Asignaturas</a></li>
+                            <li><a class="dropdown-item" href="{% url 'gestionar_secciones' %}"><i class="bi bi-list-ol"></i> Secciones</a></li>
+                            <li><a class="dropdown-item" href="{% url 'gestionar_profesores' %}"><i class="bi bi-person"></i> Profesores</a></li>
+                            <li><a class="dropdown-item" href="{% url 'gestionar_estudiantes' %}"><i class="bi bi-person"></i> Estudiantes</a></li>
+                            <li><a class="dropdown-item" href="{% url 'gestionar_bloques_horarios' %}"><i class="bi bi-clock"></i> Bloques Horarios</a></li>
+                            <li><a class="dropdown-item" href="{% url 'gestionar_aulas' %}"><i class="bi bi-door-open"></i> Aulas</a></li>
+                            <li><a class="dropdown-item" href="{% url 'gestionar_clases' %}"><i class="bi bi-easel"></i> Clases</a></li>
+                        </ul>
+                    </li>
                 {% endif %}
+
+                {% if user.user_type == 'admin_zona' %}
+     <li class="nav-item">
+        <a class="nav-link" href="{% url 'gestionar_calendario' %}">
+            <i class="bi bi-calendar-event"></i> Calendario Académico
+        </a>
+    </li>
+    
+{% endif %}
 
                 <!-- Menú Admin Global -->
                 {% if user.user_type == 'admin_global' %}
-                <li class="nav-item">
-                    <a class="nav-link" href="{% url 'gestionar_sedes' %}"><i class="bi bi-building"></i> Crear Sede</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="{% url 'gestionar_admin_zona' %}">
-                        <i class="bi bi-person-plus"></i> Crear Admin Zona
-                    </a>
-                </li>
-                {% endif %}
-
-                {% if user.user_type == 'admin_global' or user.user_type == 'admin_zona' %}
-                <li class="nav-item">
-                    <a class="nav-link" href="#"><i class="bi bi-clock"></i> Bloques Horarios</a>
-                </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'gestionar_sedes' %}"><i class="bi bi-building"></i> Crear Sede</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'gestionar_admin_zona' %}">
+                            <i class="bi bi-person-plus"></i> Crear Admin Zona
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'gestionar_calendario' %}"><i class="bi bi-calendar-event"></i> Calendario Académico</a>
+                    </li>
                 {% endif %}
             </ul>
-
             <ul class="navbar-nav ms-auto">
                 <li class="nav-item me-2">
                     <span class="navbar-text text-white">
@@ -100,19 +113,7 @@
 {% endif %}
 {% endblock navbar %}
 
-<main class="py-4">
-    {% if messages %}
-        <div class="container">
-            {% for message in messages %}
-                <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
-                    {{ message }}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                </div>
-            {% endfor %}
-        </div>
-    {% endif %}
-    {% block content %}{% endblock content %}
-</main>
+{% block content %}{% endblock content %}
 
 </div>
 

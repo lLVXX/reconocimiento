@@ -7,8 +7,8 @@ from personas.models import EstudianteAsignaturaSeccion
 from django.db.models import Count
 
 from personas.models import EstudianteAsignaturaSeccion, EstudianteFoto
-
-from core.helpers.arcface_utils import generar_embedding_from_file
+from core.helpers.arcface_microservice import obtener_embedding_desde_microservicio
+import numpy as np
 
 
 
@@ -92,7 +92,6 @@ class EstudianteForm(forms.ModelForm):
             self.fields['carrera'].queryset = Carrera.objects.filter(sede=self.user.sede)
 
     def save(self, commit=True):
-        print("==== EJECUTANDO SAVE DE ESTUDIANTE FORM ====")
         estudiante = super().save(commit=False)
         estudiante.user_type = 'estudiante'
         estudiante.sede = self.user.sede
@@ -111,22 +110,20 @@ class EstudianteForm(forms.ModelForm):
             imagen_file = self.cleaned_data.get('imagen')
             if imagen_file and not estudiante.fotos.filter(es_base=True).exists():
                 imagen_file.seek(0)
-                embedding = generar_embedding_from_file(imagen_file)
+                embedding = obtener_embedding_desde_microservicio(imagen_file)
                 if embedding is None:
                     raise forms.ValidationError("No se detectó rostro en la imagen.")
                 foto_base = EstudianteFoto(
                     estudiante=estudiante,
                     imagen=imagen_file,
-                    embedding=embedding.tobytes(),
+                    embedding=np.array(embedding, dtype='float32').tobytes(),
                     es_base=True
                 )
                 foto_base.save()
                 imagen_file.seek(0)
             # === ASIGNACIÓN DE SECCIONES (SIN CAMBIOS) ===
             asignaturas = Asignatura.objects.filter(carrera=estudiante.carrera)
-            print(">>> Asignaturas encontradas:", list(asignaturas))
             for asignatura in asignaturas:
-                print(">>> Procesando asignatura:", asignatura)
                 secciones = Seccion.objects.filter(asignatura=asignatura).annotate(
                     num_estudiantes=Count('relaciones_estudiantes_asignatura')
                 )
@@ -137,9 +134,7 @@ class EstudianteForm(forms.ModelForm):
                         break
                 if not seccion_asignada:
                     nombre_seccion = generar_nombre_seccion(asignatura)
-                    print(f">>> Creando nueva sección: {nombre_seccion}")
                     seccion_asignada = Seccion.objects.create(nombre=nombre_seccion, asignatura=asignatura)
-                print(f">>> Asignando estudiante a sección: {seccion_asignada}")
                 EstudianteAsignaturaSeccion.objects.get_or_create(
                     estudiante=estudiante,
                     asignatura=asignatura,
@@ -147,7 +142,7 @@ class EstudianteForm(forms.ModelForm):
                 )
             self.save_m2m()
         return estudiante
-    
+
 
 
 # ------------------------------------------------------------

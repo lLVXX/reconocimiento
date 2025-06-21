@@ -1,7 +1,7 @@
 # SEDES/MODELS.PY
 
 from django.db import models
-
+import string
 
 class Sede(models.Model):
     nombre = models.CharField(max_length=100, unique=True)
@@ -42,3 +42,26 @@ class Seccion(models.Model):
     
     def cantidad_estudiantes(self):
         return self.estudiantes.count()  # Solo si tienes related_name="estudiantes" en CustomUser
+    
+
+def generar_nombre_seccion(asignatura):
+    """
+    Genera el nombre de la siguiente sección para una asignatura.
+    Ejemplo: '001A', '001B', ..., '002A', etc.
+    """
+    base_nombre = asignatura.nombre[:3].upper()
+    secciones_existentes = asignatura.secciones.order_by('nombre').values_list('nombre', flat=True)
+    if not secciones_existentes:
+        return '001A'
+    codigos = [s for s in secciones_existentes if s[:3].isdigit() and s[3:].isalpha()]
+    if not codigos:
+        return '001A'
+    ult_codigo = sorted(codigos)[-1]
+    num = int(ult_codigo[:3])
+    letra = ult_codigo[3]
+    if letra == 'Z':
+        num += 1
+        letra = 'A'
+    else:
+        letra = chr(ord(letra) + 1)
+    return f"{num:03d}{letra}"

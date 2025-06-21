@@ -38,81 +38,87 @@ DIAS_SEMANA = [
     ('MI', 'Miércoles'),
     ('JU', 'Jueves'),
     ('VI', 'Viernes'),
+    ('SA', 'Sábado'),
 ]
 
-# --- Campo personalizado para mostrar todo el detalle de la seccion ---
+
 class SeccionModelChoiceField(forms.ModelChoiceField):
     def label_from_instance(self, obj):
+        # Muestra más info al usuario
         return f"{obj.nombre} - {obj.asignatura.nombre} - {obj.asignatura.carrera.nombre}"
+
+
+
 
 class ClaseForm(forms.ModelForm):
     carrera = forms.ModelChoiceField(
         queryset=Carrera.objects.none(),
         label="Carrera",
         required=True,
-        widget=forms.Select(attrs={'class': 'form-control'})
+        widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_carrera'})
     )
     asignatura = forms.ModelChoiceField(
         queryset=Asignatura.objects.none(),
         label="Asignatura",
         required=True,
-        widget=forms.Select(attrs={'class': 'form-control'})
+        widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_asignatura'})
     )
-    seccion = SeccionModelChoiceField(
+    seccion = forms.ModelChoiceField(
         queryset=Seccion.objects.none(),
         label="Sección",
         required=True,
-        widget=forms.Select(attrs={'class': 'form-control'})
-    )
-
-    dia_semana = forms.ChoiceField(
-        choices=DIAS_SEMANA,   # <---- Usa los choices del modelo
-        label="Día de la semana",
-        required=True,
-        widget=forms.Select(attrs={'class': 'form-control'})
+        widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_seccion'})
     )
 
     class Meta:
         model = Clase
-        fields = ['carrera', 'asignatura', 'seccion', 'dia_semana', 'bloque_horario', 'aula', 'profesor']
+        fields = [
+            'carrera', 'asignatura', 'seccion',
+            'dia_semana', 'bloque_horario', 'aula', 'profesor'
+        ]
         widgets = {
-            'bloque_horario': forms.Select(attrs={'class': 'form-control'}),
-            'aula': forms.Select(attrs={'class': 'form-control'}),
-            'profesor': forms.Select(attrs={'class': 'form-control'}),
+            'bloque_horario': forms.Select(attrs={'class': 'form-select'}),
+            'aula': forms.Select(attrs={'class': 'form-select'}),
+            'profesor': forms.HiddenInput(),
+            'dia_semana': forms.Select(attrs={'class': 'form-select'}),
         }
 
     def __init__(self, *args, **kwargs):
         user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
-        if user:
-            sede = getattr(user, "sede", None)
-            self.fields['carrera'].queryset = Carrera.objects.filter(sede=sede)
-            self.fields['aula'].queryset = Aula.objects.filter(sede=sede)
-            self.fields['profesor'].queryset = CustomUser.objects.filter(user_type='profesor', sede=sede)
+        if user and hasattr(user, "sede"):
+            self.fields['carrera'].queryset = Carrera.objects.filter(sede=user.sede)
+            self.fields['aula'].queryset = Aula.objects.filter(sede=user.sede)
         else:
             self.fields['carrera'].queryset = Carrera.objects.all()
             self.fields['aula'].queryset = Aula.objects.all()
-            self.fields['profesor'].queryset = CustomUser.objects.filter(user_type='profesor')
-
-        # --- Dependencias dinámicas ---
-        if self.data.get('carrera'):
-            try:
-                carrera_id = int(self.data.get('carrera'))
-                self.fields['asignatura'].queryset = Asignatura.objects.filter(carrera_id=carrera_id)
-            except (ValueError, TypeError):
-                self.fields['asignatura'].queryset = Asignatura.objects.none()
-        elif self.instance.pk:
-            self.fields['asignatura'].queryset = Asignatura.objects.filter(carrera=self.instance.seccion.asignatura.carrera)
+        carrera_id = (
+            self.data.get('carrera')
+            or (self.initial.get('carrera').id if self.initial.get('carrera') else None)
+            or (self.instance.seccion.asignatura.carrera.id if getattr(self.instance, 'seccion', None) else None)
+        )
+        if carrera_id:
+            self.fields['asignatura'].queryset = Asignatura.objects.filter(carrera_id=carrera_id)
         else:
             self.fields['asignatura'].queryset = Asignatura.objects.none()
-
-        if self.data.get('asignatura'):
-            try:
-                asignatura_id = int(self.data.get('asignatura'))
-                self.fields['seccion'].queryset = Seccion.objects.filter(asignatura_id=asignatura_id)
-            except (ValueError, TypeError):
-                self.fields['seccion'].queryset = Seccion.objects.none()
-        elif self.instance.pk:
-            self.fields['seccion'].queryset = Seccion.objects.filter(asignatura=self.instance.seccion.asignatura)
+        asignatura_id = (
+            self.data.get('asignatura')
+            or (self.initial.get('asignatura').id if self.initial.get('asignatura') else None)
+            or (self.instance.seccion.asignatura.id if getattr(self.instance, 'seccion', None) else None)
+        )
+        if asignatura_id:
+            self.fields['seccion'].queryset = Seccion.objects.filter(asignatura_id=asignatura_id)
         else:
             self.fields['seccion'].queryset = Seccion.objects.none()
+#################### ASIS MANUAL #############3
+
+
+class AsistenciaManualForm(forms.Form):
+    def __init__(self, estudiantes, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for estudiante in estudiantes:
+            self.fields[f"presente_{estudiante.id}"] = forms.BooleanField(
+                label=estudiante.get_full_name(),
+                required=False,
+                initial=False
+            )
