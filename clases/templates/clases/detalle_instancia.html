@@ -1,0 +1,85 @@
+{% extends 'core/base.html' %}
+{% load static %}
+{% block content %}
+<div class="container mt-4">
+  <h2>Asistencia - {{ instancia.fecha|date:"d/m/Y" }}</h2>
+
+  <div class="mb-3">
+    <video id="videoFeed" width="480" height="360" autoplay muted
+           style="border:2px solid #333;"></video>
+    <button id="btnRec" class="btn btn-primary mt-2">
+      Iniciar Reconocimiento Facial
+    </button>
+  </div>
+
+  <div class="row" id="estudiantes-grid">
+    {% for est in estudiantes %}
+    <div class="col-md-3 mb-3">
+      <div class="card text-white bg-danger estudiante-card"
+           data-est-id="{{ est.id }}" id="card-{{ est.id }}">
+        <div class="card-body">
+          <h5 class="card-title">{{ est.get_full_name }}</h5>
+          <p class="card-text">RUT: {{ est.rut }}</p>
+          <span class="badge present-badge d-none">Presente</span>
+        </div>
+      </div>
+    </div>
+    {% empty %}
+    <div class="col-12">
+      <div class="alert alert-info">No hay estudiantes inscritos.</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <button class="btn btn-secondary" onclick="history.back()">← Volver</button>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const MATCH_URL = "{{ match_url }}";
+const video = document.getElementById('videoFeed');
+const btn   = document.getElementById('btnRec');
+
+navigator.mediaDevices.getUserMedia({video:true})
+  .then(s => video.srcObject = s).catch(console.error);
+
+let activo=false, timer;
+btn.onclick = () => {
+  activo = !activo;
+  btn.textContent = activo ? 'Detener Reconocimiento Facial'
+                           : 'Iniciar Reconocimiento Facial';
+  activo ? runMatch() : clearTimeout(timer);
+};
+
+async function runMatch(){
+  if (!activo) return;
+  const c=document.createElement('canvas'),
+        ctx=c.getContext('2d');
+  c.width=video.videoWidth;  c.height=video.videoHeight;
+  ctx.drawImage(video,0,0);
+  const blob = await new Promise(r=>c.toBlob(r,'image/jpeg'));
+  const form = new FormData();
+  form.append('file', blob, 'frame.jpg');
+  form.append('est_id', 0);  // opcional: si mandas el id
+
+  fetch(MATCH_URL,{method:'POST',body:form})
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.ok){
+        data.results.forEach(r=>{
+          const card=document.getElementById(`card-${r.estudiante_id}`);
+          if(!card) return;
+          if(r.match){
+            card.classList.replace('bg-danger','bg-success');
+            card.querySelector('.present-badge').classList.remove('d-none');
+          } else {
+            card.classList.replace('bg-success','bg-danger');
+          }
+        });
+      }
+      timer = setTimeout(runMatch,2000);
+    }).catch(console.error);
+}
+</script>
+{% endblock %}

@@ -13,6 +13,8 @@ from django import forms
 import requests
 import numpy as np
 
+from django.conf import settings
+
 
 
 from django.db.models import Count  
@@ -432,12 +434,16 @@ def resumen_estudiantes_por_seccion(request):
 
 
 def obtener_embedding(imagen_path):
-    url = "http://localhost:8001/embedding/"  # Cambia el puerto/endpoint si tu microservicio es otro
+    """
+    Llama al endpoint /match/ o a /detect/ para obtener el embedding
+    (asumiendo que tu FastAPI expone /embedding/ si la creaste).
+    Si usas /match/, ajusta el parseo.
+    """
+    url = settings.ARC_FACE_URL + "/match/"
     with open(imagen_path, "rb") as f:
         files = {'file': f}
-        response = requests.post(url, files=files)
-    response.raise_for_status()
-    data = response.json()
-    # El microservicio debe devolver: {"embedding": [float, float, ...]}
-    embedding = np.array(data['embedding'], dtype=np.float32)
-    return embedding
+        resp = requests.post(url, files=files)
+        resp.raise_for_status()
+        data = resp.json()
+    # ejemplo si tu FastAPI devolviera {"embedding": [...]}:
+    return np.array(data['embedding'], dtype=np.float32)

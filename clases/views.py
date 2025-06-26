@@ -1,26 +1,57 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.decorators import login_required
-from core.decorators import admin_zona_required, admin_global_required, profesor_required
-from django.contrib import messages
-from .models import BloqueHorario, Aula, Clase, AsistenciaClase
-from .forms import BloqueHorarioForm, AulaForm, ClaseForm
-from sedes.models import Seccion, Asignatura, Carrera
-from personas.models import EstudianteAsignaturaSeccion
-from core.models import CustomUser, SemanaAcademica, CalendarioAcademico
-from django.http import JsonResponse
 from django.urls import reverse
+from django.http import JsonResponse
+from django.utils import timezone
+from django.db import transaction
+from django.db.models import F
+from django.forms import HiddenInput
 from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.csrf import csrf_exempt
-from django.utils import timezone
-import requests
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db.models     import Count
+from core.decorators import admin_zona_required, admin_global_required, profesor_required
+from core.models import CustomUser, SemanaAcademica
+from django.http import JsonResponse, HttpResponseBadRequest
+
+from django.middleware.csrf import get_token
+
+
+
+from sedes.models import Sede, Carrera, Asignatura, Seccion
+from personas.models import EstudianteAsignaturaSeccion, EstudianteAsignaturaSeccion
+
+from .models import (
+    BloqueHorario,
+    Aula,
+    Clase,
+    ClasePlantillaVersion,
+    ClaseInstancia,
+    AsistenciaClase,
+)
+from .forms import BloqueHorarioForm, AulaForm, ClaseForm
+
+from collections import defaultdict
+import io, json, base64, requests
 from datetime import timedelta
-from django import forms
-import io
-import base64
-import json
+from django.conf import settings
 from django.db import transaction
 # ========== CONFIGURACIÓN ARC FACE ==========
 ARCFACE_URL = "http://localhost:8001/match_faces/"
+
+
+
+
+
+# Después de todos tus imports, añade:
+DIAS_SEMANA = [
+    ('LU', 'Lunes'),
+    ('MA', 'Martes'),
+    ('MI', 'Miércoles'),
+    ('JU', 'Jueves'),
+    ('VI', 'Viernes'),
+    ('SA', 'Sábado'),
+]
 
 ##############################################
 # CRUD BLOQUES HORARIOS
@@ -53,31 +84,47 @@ def gestionar_bloques_horarios(request):
 ##############################################
 # CRUD AULAS
 ##############################################
+
 @login_required
 @admin_zona_required
 def gestionar_aulas(request):
-    editar_id = request.GET.get("editar")
+    # Obtener parámetros de edición/eliminación
+    editar_id   = request.GET.get("editar")
     eliminar_id = request.GET.get("eliminar")
+
+    # ELIMINAR
     if eliminar_id:
         aula = get_object_or_404(Aula, id=eliminar_id, sede=request.user.sede)
         aula.delete()
         messages.success(request, "Aula eliminada correctamente.")
         return redirect("gestionar_aulas")
+
+    # EDITAR: cargar instancia en el form
     if editar_id:
         instancia = get_object_or_404(Aula, id=editar_id, sede=request.user.sede)
         form = AulaForm(request.POST or None, instance=instancia)
     else:
+        # CREAR: form vacío con valor inicial camara_ip="0"
         form = AulaForm(request.POST or None)
+
+    # PROCESAR FORM
     if request.method == 'POST' and form.is_valid():
         aula = form.save(commit=False)
         aula.sede = request.user.sede
+        # Si el usuario dejó camara_ip vacío, forzar "0"
+        if not aula.camara_ip:
+            aula.camara_ip = "0"
         aula.save()
-        messages.success(request, f"{'Actualizada' if editar_id else 'Creada'} correctamente.")
+        accion = "Actualizada" if editar_id else "Creada"
+        messages.success(request, f"Aula {accion} correctamente.")
         return redirect("gestionar_aulas")
+
+    # LISTADO: solo aulas de la sede del usuario
     aulas = Aula.objects.filter(sede=request.user.sede).order_by('numero_sala')
+
     return render(request, 'clases/gestionar_aulas.html', {
-        'form': form,
-        'aulas': aulas,
+        'form':      form,
+        'aulas':     aulas,
         'editar_id': editar_id,
     })
 
@@ -88,171 +135,282 @@ def gestionar_aulas(request):
 
 
 
-
-
-
-
-
-
 @login_required
+@admin_zona_required
 def gestionar_clases(request):
-    print("\n---- [gestionar_clases] ----")
     user = request.user
-    es_admin_zona = user.user_type == 'admin_zona'
-    profesores = CustomUser.objects.filter(
-        user_type='profesor',
-        sede=user.sede if es_admin_zona else None
-    ).order_by('last_name')
 
-    bloques = BloqueHorario.objects.order_by('hora_inicio')
-    dias = ['LU', 'MA', 'MI', 'JU', 'VI', 'SA']
-    dias_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+    # 1) Profesores y selección
+    profesores = CustomUser.objects.filter(user_type='profesor', sede=user.sede).order_by('last_name')
+    prof_id = request.GET.get('profesor')
+    selected_profesor = get_object_or_404(profesores, pk=prof_id) if prof_id else None
 
-    selected_profesor_id = request.GET.get('profesor') or request.POST.get('profesor')
-    selected_profesor = CustomUser.objects.filter(id=selected_profesor_id).first() if selected_profesor_id else None
+    # 2) Semanas y estado publicado
+    semanas = list(SemanaAcademica.objects.filter(calendario__sede=user.sede).order_by('numero'))
+    any_publicada = selected_profesor and Clase.objects.filter(profesor=selected_profesor, publicada=True).exists()
+    sem_act = None
+    if any_publicada and semanas:
+        sid = request.GET.get('semana') or semanas[0].id
+        sem_act = get_object_or_404(SemanaAcademica, pk=sid)
 
-    editar_id = request.GET.get('editar')
-    eliminar_id = request.GET.get('eliminar')
+    # 3) Crear nueva plantilla + generar instancias
+    form = ClaseForm(request.POST or None, user=user) if selected_profesor else None
+    if selected_profesor and request.method=='POST' and 'agregar' in request.POST:
+        if form.is_valid():
+            nueva = form.save(commit=False)
+            nueva.profesor = selected_profesor
+            nueva.save()
+            if semanas:
+                version = ClasePlantillaVersion.objects.create(
+                    plantilla=nueva,
+                    effective_from=semanas[0]
+                )
+                for sem in semanas:
+                    ClaseInstancia.objects.update_or_create(
+                        version=version,
+                        semana_academica=sem,
+                        defaults={'fecha': sem.fecha_inicio + nueva.get_dia_semana_delta()}
+                    )
+            messages.success(request, "Plantilla creada y aplicada a todo el semestre.")
+            return redirect(f"{reverse('gestionar_clases')}?profesor={selected_profesor.id}")
+        messages.error(request, "Corrige los errores del formulario.")
 
-    form = None
-    modo_edicion = False
-
-    # --- ELIMINAR ---
-    if eliminar_id and selected_profesor:
-        clase = get_object_or_404(Clase, id=eliminar_id, profesor=selected_profesor)
-        clase.delete()
-        messages.success(request, "Clase eliminada correctamente.")
+    # 4) Publicar semestre
+    if selected_profesor and request.method=='POST' and 'publicar' in request.POST:
+        if semanas:
+            for pl in Clase.objects.filter(profesor=selected_profesor, publicada=False):
+                ver, _ = ClasePlantillaVersion.objects.get_or_create(plantilla=pl, effective_from=semanas[0])
+                for sem in semanas:
+                    ClaseInstancia.objects.update_or_create(
+                        version=ver,
+                        semana_academica=sem,
+                        defaults={'fecha': sem.fecha_inicio + pl.get_dia_semana_delta()}
+                    )
+                pl.publicada = True
+                pl.save()
+            messages.success(request, "Todas las plantillas publicadas.")
+        else:
+            messages.warning(request, "No hay semanas académicas definidas.")
         return redirect(f"{reverse('gestionar_clases')}?profesor={selected_profesor.id}")
 
-    # --- EDITAR ---
-    if editar_id and selected_profesor:
-        clase = get_object_or_404(Clase, id=editar_id, profesor=selected_profesor)
-        modo_edicion = True
-        if request.method == "POST" and request.POST.get("es_edicion") == "1":
-            form = ClaseForm(request.POST, instance=clase, user=selected_profesor)
-            form.fields['profesor'].initial = selected_profesor.id
-            if form.is_valid():
-                clase_editada = form.save(commit=False)
-                clase_editada.profesor = selected_profesor
-                try:
-                    clase_editada.save()
-                    messages.success(request, "Clase editada correctamente.")
-                except Exception as e:
-                    messages.error(request, f"ERROR AL GUARDAR LA CLASE: {e}")
-                return redirect(f"{reverse('gestionar_clases')}?profesor={selected_profesor.id}")
-        else:
-            initial = {
-                'carrera': clase.seccion.asignatura.carrera,
-                'asignatura': clase.seccion.asignatura,
-                'seccion': clase.seccion,
-            }
-            form = ClaseForm(instance=clase, user=selected_profesor, initial=initial)
-            form.fields['profesor'].initial = selected_profesor.id
-    # --- CREAR ---
-    elif selected_profesor:
-        form = ClaseForm(request.POST or None, user=selected_profesor)
-        form.fields['profesor'].initial = selected_profesor.id
-        if request.method == "POST" and request.POST.get("es_edicion") == "0":
-            if form.is_valid():
-                nueva_clase = form.save(commit=False)
-                clases_iguales = Clase.objects.filter(
-                    profesor=selected_profesor,
-                    dia_semana=form.cleaned_data['dia_semana'],
-                    bloque_horario=form.cleaned_data['bloque_horario']
+    # 5) Editar / Eliminar con alcance
+    if selected_profesor and request.method=='POST' and request.POST.get('action') in (
+        'editar_plantilla','eliminar_plantilla','eliminar_inst'
+    ):
+        action = request.POST['action']
+        target = int(request.POST['target_id'])
+        scope  = request.POST.get('scope')
+
+        # EDITAR PLANTILLA
+        if action=='editar_plantilla':
+            nueva_seccion = get_object_or_404(Seccion, pk=request.POST['seccion'])
+            nueva_aula    = get_object_or_404(Aula, pk=request.POST['aula'])
+
+            if any_publicada and scope=='week':
+                pl_orig = get_object_or_404(Clase, pk=target, profesor=selected_profesor)
+                inst = get_object_or_404(
+                    ClaseInstancia,
+                    version__plantilla=pl_orig,
+                    semana_academica=sem_act
                 )
-                if clases_iguales.exists():
-                    messages.error(request, f"Ya existe una clase para ese profesor en ese horario.")
+                clone = Clase.objects.create(
+                    profesor        = pl_orig.profesor,
+                    seccion         = nueva_seccion,
+                    aula            = nueva_aula,
+                    dia_semana      = pl_orig.dia_semana,
+                    bloque_horario  = pl_orig.bloque_horario,
+                    publicada       = True
+                )
+                ver_clone = ClasePlantillaVersion.objects.create(plantilla=clone, effective_from=sem_act)
+                inst.version = ver_clone
+                inst.save()
+            else:
+                pl = get_object_or_404(Clase, pk=target, profesor=selected_profesor)
+                if any_publicada and scope!='week':
+                    ver, _ = ClasePlantillaVersion.objects.get_or_create(plantilla=pl, effective_from=sem_act)
+                    pl.seccion = nueva_seccion
+                    pl.aula    = nueva_aula
+                    pl.save()
+                    for sem in semanas:
+                        if sem.numero >= sem_act.numero:
+                            ClaseInstancia.objects.update_or_create(
+                                version=ver,
+                                semana_academica=sem,
+                                defaults={'fecha': sem.fecha_inicio + pl.get_dia_semana_delta()}
+                            )
                 else:
-                    nueva_clase.profesor = selected_profesor
-                    try:
-                        nueva_clase.save()
-                        messages.success(request, "Clase agendada exitosamente.")
-                    except Exception as e:
-                        messages.error(request, f"ERROR AL GUARDAR LA CLASE: {e}")
-                    return redirect(f"{request.path}?profesor={selected_profesor.id}")
-        modo_edicion = False
+                    pl.seccion = nueva_seccion
+                    pl.aula    = nueva_aula
+                    pl.save()
+            messages.success(request, "Plantilla editada correctamente.")
 
-    # --- MATRIZ PARA TABLERO SEMANAL ---
-    matriz = {dia: {bloque.id: None for bloque in bloques} for dia in dias}
-    clases = []
-    clase_estudiantes = {}
-    if selected_profesor:
-        clases = Clase.objects.filter(
-            profesor=selected_profesor,
-        ).select_related('bloque_horario', 'seccion', 'seccion__asignatura', 'aula')
-        for clase in clases:
-            matriz[clase.dia_semana][clase.bloque_horario.id] = clase
-            # Aquí calculamos la cantidad REAL de estudiantes
-            num_estudiantes = EstudianteAsignaturaSeccion.objects.filter(
-                seccion=clase.seccion,
-                asignatura=clase.seccion.asignatura
-            ).count()
-            clase_estudiantes[clase.id] = num_estudiantes
+        # ELIMINAR INSTANCIA
+        elif action=='eliminar_inst':
+            if scope=='week':
+                ClaseInstancia.objects.filter(pk=target).delete()
+            else:
+                inst = get_object_or_404(
+                    ClaseInstancia,
+                    pk=target,
+                    version__plantilla__profesor=selected_profesor
+                )
+                for sem in semanas:
+                    if sem.numero >= sem_act.numero:
+                        ClaseInstancia.objects.filter(
+                            version=inst.version,
+                            semana_academica=sem
+                        ).delete()
+            messages.success(request, "Instancia eliminada correctamente.")
 
-    context = {
-        'profesores': profesores,
-        'bloques': bloques,
-        'dias': dias,
-        'dias_nombres': dias_nombres,
-        'matriz': matriz,
-        'selected_profesor_id': int(selected_profesor_id) if selected_profesor_id else None,
-        'form': form,
-        'modo_edicion': modo_edicion,
-        'editar_id': int(editar_id) if editar_id else None,
-        'clases': clases,
-        'clase_estudiantes': clase_estudiantes,  # <-- esto es clave
-    }
-    return render(request, "clases/gestionar_clases.html", context)
+        # ELIMINAR PLANTILLA
+        else:
+            if any_publicada and scope=='week':
+                ver = get_object_or_404(
+                    ClasePlantillaVersion,
+                    plantilla__pk=target,
+                    effective_from=sem_act
+                )
+                ClaseInstancia.objects.filter(version=ver, semana_academica=sem_act).delete()
+            else:
+                versiones = ClasePlantillaVersion.objects.filter(
+                    plantilla__profesor=selected_profesor,
+                    effective_from__gte=sem_act
+                )
+                for ver in versiones:
+                    ver.instancias.filter(semana_academica__numero__gte=sem_act.numero).delete()
+                    ver.delete()
+            messages.success(request, "Plantilla eliminada correctamente.")
+
+        return redirect(f"{reverse('gestionar_clases')}?profesor={selected_profesor.id}&semana={sem_act.id}")
+
+    # 6) Construir matriz
+    bloques      = BloqueHorario.objects.order_by('hora_inicio')
+    dias         = [d for d,_ in DIAS_SEMANA]
+    dias_nombres = [n for _,n in DIAS_SEMANA]
+    matriz       = {d:{b.id: None for b in bloques} for d in dias}
+
+    instancias = []
+    if selected_profesor and any_publicada:
+        instancias = ClaseInstancia.objects.filter(
+            version__plantilla__profesor=selected_profesor,
+            semana_academica=sem_act
+        ).select_related(
+            'version__plantilla__bloque_horario',
+            'version__plantilla__seccion',
+            'version__plantilla__aula'
+        )
+        for inst in instancias:
+            pl = inst.version.plantilla
+            matriz[pl.dia_semana][pl.bloque_horario.id] = inst
+
+    # 7) Contar estudiantes por sección
+    section_ids = {inst.version.plantilla.seccion.id for inst in instancias}
+    qs_counts = (
+        EstudianteAsignaturaSeccion.objects
+        .filter(seccion_id__in=section_ids)
+        .values('seccion_id')
+        .annotate(cnt=Count('id'))
+    )
+    counts_map = {entry['seccion_id']: entry['cnt'] for entry in qs_counts}
+
+    return render(request, 'clases/gestionar_clases.html', {
+        'profesores':        profesores,
+        'selected_profesor':  selected_profesor,
+        'semanas':           semanas,
+        'sem_act':           sem_act,
+        'any_publicada':     any_publicada,
+        'form':              form,
+        'bloques':           bloques,
+        'dias':              dias,
+        'dias_nombres':      dias_nombres,
+        'matriz':            matriz,
+        'counts_map':        counts_map,
+    })
 
 
 
 
 
+      
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# AJAX:
-from django.views.decorators.http import require_GET
-
-@login_required
+# Endpoints AJAX para poblar selectores
 @require_GET
+@login_required
+@admin_zona_required
 def get_asignaturas_ajax(request):
-    carrera_id = request.GET.get('carrera_id')
-    data = []
-    if carrera_id:
-        data = [{'id': a.id, 'nombre': a.nombre} for a in Asignatura.objects.filter(carrera_id=carrera_id)]
-    return JsonResponse(data, safe=False)
+    qs = Asignatura.objects.filter(carrera__sede=request.user.sede).values('id','nombre')
+    return JsonResponse(list(qs), safe=False)
+
+@require_GET
+@login_required
+@admin_zona_required
+def get_secciones_ajax(request):
+    aid = request.GET.get('asignatura_id')
+    qs = Seccion.objects.filter(asignatura_id=aid).values('id','nombre')
+    return JsonResponse(list(qs), safe=False)
+
+
+
 
 @login_required
-@require_GET
-def get_secciones_ajax(request):
-    asignatura_id = request.GET.get('asignatura_id')
-    data = []
-    if asignatura_id:
-        data = [{'id': s.id, 'nombre': s.nombre} for s in Seccion.objects.filter(asignatura_id=asignatura_id)]
-    return JsonResponse(data, safe=False)
+@profesor_required
+def horario_profesor(request):
+    user = request.user
 
+    # 1) Semanas de la sede del profesor
+    semanas = (SemanaAcademica.objects
+               .filter(calendario__sede=user.sede)
+               .order_by('numero'))
+    semana_id = request.GET.get('semana')
+    if semana_id:
+        sem_sel = get_object_or_404(semanas, pk=semana_id)
+    else:
+        sem_sel = semanas.first()
+
+    # 2) Bloques y días
+    bloques      = BloqueHorario.objects.order_by('hora_inicio')
+    dias_codes   = [code for code, _ in DIAS_SEMANA]
+    dias_nombres = [name for _, name in DIAS_SEMANA]
+
+    # 3) Instancias de clase del profesor en la semana seleccionada
+    instancias = (ClaseInstancia.objects
+                  .filter(version__plantilla__profesor=user,
+                          semana_academica=sem_sel)
+                  .select_related(
+                      'version__plantilla__bloque_horario',
+                      'version__plantilla__seccion',
+                      'version__plantilla__aula'
+                  ))
+
+    # 4) Construir la matriz[dia][bloque_id] = instancia
+    matriz = {dia: {b.id: None for b in bloques} for dia in dias_codes}
+    for inst in instancias:
+        dia   = inst.version.plantilla.dia_semana
+        bid   = inst.version.plantilla.bloque_horario.id
+        matriz[dia][bid] = inst
+
+    # 5) Contar estudiantes por sección (misma lógica que en gestionar_clases)
+    section_ids = {
+        inst.version.plantilla.seccion.id
+        for inst in instancias
+    }
+    qs_counts = (
+        EstudianteAsignaturaSeccion.objects
+        .filter(seccion_id__in=section_ids)
+        .values('seccion_id')
+        .annotate(cnt=Count('id'))
+    )
+    counts_map = {entry['seccion_id']: entry['cnt'] for entry in qs_counts}
+
+    return render(request, 'clases/horario_profesor.html', {
+        'semanas':      semanas,
+        'semana_sel':   sem_sel,
+        'bloques':      bloques,
+        'dias':         dias_codes,
+        'dias_nombres': dias_nombres,
+        'matriz':       matriz,
+        'counts_map':   counts_map,
+    })
 ##############################################
 # DASHBOARD PROFESOR
 ##############################################
@@ -329,104 +487,193 @@ def dashboard_profesor(request):
 ##############################################
 # AJAX ENDPOINTS
 ##############################################
-@login_required
-@require_GET
-def get_asignaturas_ajax(request):
-    carrera_id = request.GET.get('carrera_id')
-    data = []
-    if carrera_id:
-        data = [{'id': a.id, 'nombre': a.nombre} for a in Asignatura.objects.filter(carrera_id=carrera_id)]
-    return JsonResponse(data, safe=False)
 
-@login_required
-@require_GET
-def get_secciones_ajax(request):
-    asignatura_id = request.GET.get('asignatura_id')
-    data = []
-    if asignatura_id:
-        data = [{'id': s.id, 'nombre': s.nombre} for s in Seccion.objects.filter(asignatura_id=asignatura_id)]
-    return JsonResponse(data, safe=False)
 
 ##############################################
 # DETALLE DE CLASE Y ASISTENCIA
 ##############################################
+
+
 @login_required
-def detalle_clase(request, clase_id):
-    clase = get_object_or_404(Clase, id=clase_id)
+def detalle_instancia(request, inst_id):
+    # 1) instancia de clase
+    instancia = get_object_or_404(ClaseInstancia, id=inst_id)
+    plantilla = instancia.version.plantilla
+
+    # 2) estudiantes inscritos
     estudiantes_ids = EstudianteAsignaturaSeccion.objects.filter(
-        seccion=clase.seccion
+        seccion=plantilla.seccion
     ).values_list("estudiante_id", flat=True)
-    estudiantes = CustomUser.objects.filter(id__in=estudiantes_ids, user_type='estudiante')
-    asistencias = {a.estudiante_id: a for a in AsistenciaClase.objects.filter(clase=clase)}
-    return render(request, 'clases/detalle_clase.html', {
-        'clase': clase,
+    estudiantes = CustomUser.objects.filter(
+        id__in=estudiantes_ids, user_type='estudiante'
+    )
+
+    # 3) asistencias previas
+    asistencias_qs = AsistenciaClase.objects.filter(instancia=instancia)
+    asistencias = { a.estudiante_id: a.presente for a in asistencias_qs }
+
+    # 4) URLs para AJAX
+    match_url  = settings.ARC_FACE_URL.rstrip('/') + '/match/'
+    manual_url = reverse('clases:ajax_asistencia_manual', args=[instancia.id])
+
+    return render(request, 'clases/detalle_instancia.html', {
+        'instancia':   instancia,
         'estudiantes': estudiantes,
         'asistencias': asistencias,
+        'match_url':   match_url,
+        'manual_url':  manual_url,
     })
 
-@csrf_exempt
-@login_required
-def ajax_asistencia_facial_live(request, clase_id):
-    if request.method != "POST":
-        return JsonResponse({"ok": False, "error": "Método no permitido"})
-    data = json.loads(request.body)
-    frame = data.get("frame")
-    if not frame:
-        return JsonResponse({"ok": False, "error": "No hay frame"})
-    img_data = frame.split(",")[1]
-    img_bytes = base64.b64decode(img_data)
-    files = {"file": ("frame.jpg", io.BytesIO(img_bytes), "image/jpeg")}
+
+@require_POST
+def ajax_match_face(request):
+    img = request.FILES.get('file')
+    if not img:
+        return JsonResponse({'error': 'No file uploaded.'}, status=400)
+
+    files = {'file': (img.name, img.read(), img.content_type)}
     try:
-        response = requests.post(ARCFACE_URL, files=files, timeout=10)
-        result = response.json()
-    except Exception as e:
-        return JsonResponse({"ok": False, "error": str(e)})
-
-    clase = get_object_or_404(Clase, id=clase_id)
-    estudiantes_ids = EstudianteAsignaturaSeccion.objects.filter(
-        seccion=clase.seccion
-    ).values_list("estudiante_id", flat=True)
-    estudiantes = CustomUser.objects.filter(id__in=estudiantes_ids, user_type='estudiante')
-
-    presentes_ids = set()
-    if result.get("ok"):
-        for face in result["results"]:
-            est_id = face.get("estudiante_id")
-            if est_id:
-                presentes_ids.add(est_id)
-    # GUARDADO SEGURO DE ASISTENCIAS (NO SOBREESCRIBE MANUAL)
-    for est in estudiantes:
-        presente = est.id in presentes_ids
-        asistencia, created = AsistenciaClase.objects.get_or_create(
-            clase=clase, estudiante=est,
-            defaults={'presente': presente, 'manual': False}
+        resp = requests.post(
+            f"{settings.ARC_FACE_URL.rstrip('/')}/match/",
+            files=files,
+            timeout=5
         )
-        if not asistencia.manual:
-            asistencia.presente = presente
-            asistencia.save()
-    resp_estudiantes = []
-    for est in estudiantes:
-        resp_estudiantes.append({
-            "id": est.id,
-            "nombre": est.get_full_name(),
-            "presente": est.id in presentes_ids,
-        })
-    return JsonResponse({"ok": True, "estudiantes": resp_estudiantes})
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        return JsonResponse({'error': str(e)}, status=502)
 
-@csrf_exempt
+    data = resp.json()  # { matched: True/False }
+    return JsonResponse({
+        'ok': True,
+        'results': [{
+            'match': data.get('matched', False),
+            'estudiante_id': int(request.POST.get('est_id', 0))  # si lo envías desde JS
+        }]
+    })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###################################################################
+###################################################################
+###################################################################
+###################################################################
+
+
+@require_POST
+def ajax_asistencia_facial_live(request, inst_id):
+    """
+    Recibe un JSON { frame: dataURL }, reenvía a /match_faces/ y devuelve:
+      { ok, estudiantes: [ { id, presente }, ... ] }
+    """
+    instancia = get_object_or_404(ClaseInstancia, pk=inst_id)
+    try:
+        payload = json.loads(request.body)
+        data_url = payload.get('frame')
+        if not data_url:
+            return HttpResponseBadRequest("No viene frame")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("JSON inválido")
+
+    # Enviar al microservicio ArcFace
+    resp = requests.post(
+        settings.ARCFACE_SERVICE_URL + '/match_faces/',
+        files={'file': data_url.split(',',1)[1]},
+        timeout=5
+    )
+    if resp.status_code != 200:
+        return JsonResponse({
+            'ok': False,
+            'error': f"Servicio ArcFace devolvió {resp.status_code}"
+        }, status=500)
+
+    try:
+        result = resp.json()
+    except ValueError:
+        return JsonResponse({
+            'ok': False,
+            'error': 'Respuesta no JSON de ArcFace'
+        }, status=500)
+
+    if not result.get('ok'):
+        return JsonResponse({ 'ok': False, 'msg': result.get('msg','Error') })
+
+    # Mapear resultados: marca o desmarca asistencia
+    salida = []
+    for r in result['results']:
+        eid = r.get('estudiante_id')
+        pres = r.get('match', False)
+        if eid:
+            obj, _ = AsistenciaClase.objects.update_or_create(
+                instancia=instancia,
+                estudiante_id=eid,
+                defaults={'presente': pres, 'manual': False}
+            )
+        salida.append({'id': eid, 'presente': pres})
+
+    return JsonResponse({'ok': True, 'estudiantes': salida})
+
+
+@require_POST
+def ajax_asistencia_manual(request, inst_id):
+    """
+    Recibe JSON { estudiante_id, presente } y guarda la AsistenciaClase.
+    """
+    instancia = get_object_or_404(ClaseInstancia, pk=inst_id)
+    try:
+        payload = json.loads(request.body)
+        eid = payload['estudiante_id']
+        pres = bool(payload['presente'])
+    except (ValueError, KeyError):
+        return HttpResponseBadRequest("JSON inválido")
+
+    AsistenciaClase.objects.update_or_create(
+        instancia=instancia,
+        estudiante_id=eid,
+        defaults={'presente': pres, 'manual': True}
+    )
+    return JsonResponse({'ok': True})
+
+
+
+
+
+
+
+
+
 @login_required
-def ajax_asistencia_manual(request, clase_id):
-    if request.method == "POST":
-        data = json.loads(request.body)
-        est_id = int(data.get('estudiante_id'))
-        presente = data.get('presente') == True
-        estudiante = get_object_or_404(CustomUser, id=est_id, user_type='estudiante')
-        asistencia, _ = AsistenciaClase.objects.get_or_create(clase_id=clase_id, estudiante=estudiante)
-        asistencia.presente = presente
-        asistencia.manual = True
-        asistencia.save()
-        return JsonResponse({'ok': True})
-    return JsonResponse({'ok': False, 'msg': 'Método no permitido'})
+@require_GET
+def get_secciones_ajax(request):
+    """
+    Devuelve JSON con las secciones de una asignatura dada.
+    Parámetro GET: ?asignatura_id=<id>
+    """
+    asignatura_id = request.GET.get('asignatura_id')
+    if not asignatura_id:
+        return JsonResponse({'error': 'Falta asignatura_id'}, status=400)
+
+    secciones = Seccion.objects.filter(asignatura_id=asignatura_id).values('id', 'nombre')
+    # output: [ {'id':1,'nombre':'001A'}, ... ]
+    return JsonResponse(list(secciones), safe=False)
+
+
+
+
+
 
 @login_required
 def finalizar_clase(request, clase_id):
@@ -541,37 +788,16 @@ def historial_clases(request):
 
 
 
-###############################################
-################################################
-# HORARIO DEL PROFESOR
-################################################
 
-@login_required
-def horario_profesor(request):
-    user = request.user
-    if user.user_type != 'profesor':
-        return redirect('dashboard_profesor')
-    semanas = SemanaAcademica.objects.filter(calendario__sede=user.sede).order_by('numero')
-    semana_id = request.GET.get('semana')
-    if semana_id:
-        semana_seleccionada = semanas.filter(id=semana_id).first()
-    else:
-        semana_seleccionada = semanas.filter(tipo='clases').order_by('fecha_inicio').first()
-    bloques = BloqueHorario.objects.order_by('hora_inicio')
-    dias = ['LU', 'MA', 'MI', 'JU', 'VI', 'SA']
-    matriz = {dia: {bloque.id: None for bloque in bloques} for dia in dias}
-    if semana_seleccionada:
-        clases = Clase.objects.filter(
-            profesor=user,
-            semana_academica=semana_seleccionada
-        ).select_related('bloque_horario', 'seccion', 'seccion__asignatura', 'aula')
-        for clase in clases:
-            matriz[clase.dia_semana][clase.bloque_horario.id] = clase
-    context = {
-        'semanas': semanas,
-        'semana_seleccionada': semana_seleccionada,
-        'bloques': bloques,
-        'dias': dias,
-        'matriz': matriz,
-    }
-    return render(request, "clases/horario_profesor.html", context)
+
+
+
+
+
+
+
+
+
+
+
+

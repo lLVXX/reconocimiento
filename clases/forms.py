@@ -4,7 +4,7 @@ from django import forms
 from .models import Aula, BloqueHorario, Clase
 from sedes.models import  Seccion, Carrera, Asignatura
 from personas.models import CustomUser
-
+from core.models import SemanaAcademica
 
 
 
@@ -14,12 +14,15 @@ from personas.models import CustomUser
 class AulaForm(forms.ModelForm):
     class Meta:
         model = Aula
-        fields = ['numero_sala', 'ip_camara']
+        # Sólo estos dos; la vista asigna .sede, y descripción puede quedar vacía
+        fields = ['numero_sala', 'camara_ip']
         widgets = {
-            'numero_sala': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Ej: 101'}),
-            'ip_camara': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'rtsp://...' }),
+            'camara_ip': forms.TextInput(attrs={'placeholder': '0 para cámara local'}),
         }
-
+        labels = {
+            'numero_sala': 'Número de sala',
+            'camara_ip': 'IP de la cámara',
+        }
     
 class BloqueHorarioForm(forms.ModelForm):
     class Meta:
@@ -48,62 +51,60 @@ class SeccionModelChoiceField(forms.ModelChoiceField):
         return f"{obj.nombre} - {obj.asignatura.nombre} - {obj.asignatura.carrera.nombre}"
 
 
+class PublicarHorarioForm(forms.Form):
+    """Para elegir la semana de corte al fijar el horario."""
+    effective_from = forms.ModelChoiceField(
+        queryset=SemanaAcademica.objects.all().order_by('numero'),
+        label="A partir de la semana",
+        help_text="Esta versión se aplicará en esta semana y en las siguientes."
+    )
+
+
+
 
 
 class ClaseForm(forms.ModelForm):
-    carrera = forms.ModelChoiceField(
-        queryset=Carrera.objects.none(),
-        label="Carrera",
-        required=True,
-        widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_carrera'})
-    )
-    asignatura = forms.ModelChoiceField(
-        queryset=Asignatura.objects.none(),
-        label="Asignatura",
-        required=True,
-        widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_asignatura'})
-    )
-    seccion = forms.ModelChoiceField(
-        queryset=Seccion.objects.none(),
-        label="Sección",
-        required=True,
-        widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_seccion'})
-    )
+    asignatura     = forms.ModelChoiceField(Asignatura.objects.none(), widget=forms.Select)
+    seccion        = forms.ModelChoiceField(Seccion.objects.none(),    widget=forms.Select)
+    aula           = forms.ModelChoiceField(Aula.objects.none(),       widget=forms.Select)
+    dia_semana     = forms.ChoiceField(choices=Clase.DIAS_SEMANA,       widget=forms.Select)
+    bloque_horario = forms.ModelChoiceField(BloqueHorario.objects.all(), widget=forms.Select)
 
     class Meta:
-        model = Clase
-        fields = [
-            'carrera', 'asignatura', 'seccion',
-            'dia_semana', 'bloque_horario', 'aula', 'profesor'
-        ]
-        widgets = {
-            'bloque_horario': forms.Select(attrs={'class': 'form-select'}),
-            'aula': forms.Select(attrs={'class': 'form-select'}),
-            'profesor': forms.HiddenInput(),
-            'dia_semana': forms.Select(attrs={'class': 'form-select'}),
-        }
+        model  = Clase
+        fields = ['asignatura','seccion','aula','dia_semana','bloque_horario']
 
-    def __init__(self, *args, **kwargs):
-        user = kwargs.pop('user', None)
+    def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
-        # Carga carreras de la sede del usuario
-        if user and hasattr(user, "sede") and user.sede:
-            self.fields['carrera'].queryset = Carrera.objects.filter(sede=user.sede)
-            self.fields['aula'].queryset = Aula.objects.filter(sede=user.sede)
+        # 1) limitar asignaturas y aulas por sede
+        if user and hasattr(user, 'sede'):
+            sede = user.sede
+            self.fields['asignatura'].queryset = Asignatura.objects.filter(carrera__sede=sede)
+            self.fields['aula'].queryset       = Aula.objects.filter(sede=sede)
         else:
-            self.fields['carrera'].queryset = Carrera.objects.all()
-            self.fields['aula'].queryset = Aula.objects.all()
-        # Determina el contexto de los selects dependientes
-        carrera_id = self.data.get('carrera') or self.initial.get('carrera') or None
-        if carrera_id:
-            self.fields['asignatura'].queryset = Asignatura.objects.filter(carrera_id=carrera_id)
-        else:
-            self.fields['asignatura'].queryset = Asignatura.objects.none()
-        asignatura_id = self.data.get('asignatura') or self.initial.get('asignatura') or None
+            self.fields['asignatura'].queryset = Asignatura.objects.all()
+            self.fields['aula'].queryset       = Aula.objects.all()
+
+        # 2) si hay datos POST (el usuario acaba de elegir asignatura),
+        #    repoblamos seccion:
+        asignatura_id = self.data.get('asignatura') or self.initial.get('asignatura')
         if asignatura_id:
             self.fields['seccion'].queryset = Seccion.objects.filter(asignatura_id=asignatura_id)
         else:
+            # mantenemos vacío al inicio
             self.fields['seccion'].queryset = Seccion.objects.none()
+            
+
+class ExcepcionForm(forms.Form):
+    semana            = forms.ModelChoiceField(
+        queryset=SemanaAcademica.objects.all().order_by('numero'),
+        widget=forms.Select(attrs={'class':'form-select'})
+    )
+    aplicar_restantes = forms.BooleanField(
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={'class':'form-check-input'})
+    )
             
 #################### ASIS MANUAL #############3
 
@@ -117,3 +118,13 @@ class AsistenciaManualForm(forms.Form):
                 required=False,
                 initial=False
             )
+
+
+
+class PublicarHorarioForm(forms.Form):
+    """Para elegir la semana de corte al fijar el horario."""
+    effective_from = forms.ModelChoiceField(
+        queryset=SemanaAcademica.objects.all().order_by('numero'),
+        label="A partir de la semana",
+        help_text="Se crearán instancias de clase en esta semana y en las siguientes."
+    )

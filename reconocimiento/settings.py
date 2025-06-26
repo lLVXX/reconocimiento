@@ -28,6 +28,10 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
+ARC_FACE_URL = os.getenv(
+    "ARC_FACE_URL",
+    "http://127.0.0.1:8000"
+)
 
 # Application definition
 
@@ -42,7 +46,7 @@ INSTALLED_APPS = [
     'sedes',
     'personas',
     'clases',
-    'arcface',
+    
 ]
 
 MIDDLEWARE = [
@@ -73,7 +77,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'reconocimiento.wsgi.application'
-
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
