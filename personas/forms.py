@@ -7,10 +7,9 @@ from personas.models import EstudianteAsignaturaSeccion
 from django.db.models import Count
 
 from personas.models import EstudianteAsignaturaSeccion, EstudianteFoto
-from core.helpers.arcface_microservice import obtener_embedding_desde_microservicio
 import numpy as np
 
-
+from django.core.exceptions import ValidationError
 
 
 
@@ -73,8 +72,12 @@ def generar_nombre_seccion(asignatura):
             if nombre not in existentes:
                 return nombre
 
-
 class EstudianteForm(forms.ModelForm):
+    imagen = forms.ImageField(
+        required=True,
+        widget=forms.ClearableFileInput(attrs={'class': 'form-control'}),
+        label="Foto del estudiante"
+    )
     carrera = forms.ModelChoiceField(
         queryset=Carrera.objects.none(),
         widget=forms.Select(attrs={'class': 'form-control'}),
@@ -92,59 +95,34 @@ class EstudianteForm(forms.ModelForm):
         if self.user:
             self.fields['carrera'].queryset = Carrera.objects.filter(sede=self.user.sede)
 
+    def clean_imagen(self):
+        img = self.cleaned_data.get('imagen')
+        if not img:
+            raise ValidationError("Debe subir una foto para generar el embedding.")
+        return img
+
     def save(self, commit=True):
         estudiante = super().save(commit=False)
         estudiante.user_type = 'estudiante'
         estudiante.sede = self.user.sede
         estudiante.carrera = self.cleaned_data['carrera']
 
+        # Genera username & email
         nombre = estudiante.first_name.strip().lower()
         apellido = estudiante.last_name.strip().lower()
-        correo = f"{nombre[:2]}.{apellido}@{estudiante.sede.nombre.lower().replace(' ', '')}.com"
+        dominio = estudiante.sede.nombre.lower().replace(' ', '')
+        correo = f"{nombre[:2]}.{apellido}@{dominio}.com"
         estudiante.email = correo
         estudiante.username = correo
+
+        # Password por defecto
         if not self.instance.pk:
             estudiante.set_password('12345678')
 
         if commit:
             estudiante.save()
-            # FOTO BASE Y EMBEDDING SOLO SI NO EXISTE YA
-            imagen_file = self.cleaned_data.get('imagen')
-            if imagen_file and not EstudianteFoto.objects.filter(estudiante=estudiante, es_base=True).exists():
-                imagen_file.seek(0)
-                embedding = obtener_embedding_desde_microservicio(imagen_file)
-                if embedding is None:
-                    raise forms.ValidationError("No se detectó rostro en la imagen o el microservicio no respondió correctamente.")
-                foto_base = EstudianteFoto(
-                    estudiante=estudiante,
-                    imagen=imagen_file,
-                    embedding=np.array(embedding, dtype='float32').tobytes(),
-                    es_base=True
-                )
-                foto_base.save()
-                imagen_file.seek(0)
-            # ASIGNACIÓN DE SECCIONES
-            asignaturas = Asignatura.objects.filter(carrera=estudiante.carrera)
-            for asignatura in asignaturas:
-                secciones = Seccion.objects.filter(asignatura=asignatura).annotate(
-                    num_estudiantes=Count('relaciones_estudiantes_asignatura')
-                )
-                seccion_asignada = None
-                for seccion in secciones:
-                    if seccion.num_estudiantes < 30:
-                        seccion_asignada = seccion
-                        break
-                if not seccion_asignada:
-                    nombre_seccion = f"{asignatura.nombre[:6]}-{asignatura.id}A"
-                    seccion_asignada = Seccion.objects.create(nombre=nombre_seccion, asignatura=asignatura)
-                EstudianteAsignaturaSeccion.objects.get_or_create(
-                    estudiante=estudiante,
-                    asignatura=asignatura,
-                    defaults={'seccion': seccion_asignada}
-                )
             self.save_m2m()
         return estudiante
-
 # ------------------------------------------------------------
 # Formularios auxiliares para CRUD
 # ------------------------------------------------------------

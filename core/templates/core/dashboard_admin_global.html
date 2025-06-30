@@ -1,125 +1,129 @@
 {% extends "core/base.html" %}
-{% load static %}
+{% block title %}Dashboard Administrador Global{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
+<div class="container my-5">
 
-  <h2 class="mb-4">Dashboard Global — Administración</h2>
+  <!-- Nav-Pills para filtrar sedes -->
+  <ul class="nav nav-pills mb-4">
+    <li class="nav-item">
+      <a class="nav-link {% if not sede_sel %}active{% endif %}" href="?sede=all">Todas las sedes</a>
+    </li>
+    {% for s in sedes %}
+      <li class="nav-item">
+        <a class="nav-link {% if s == sede_sel %}active{% endif %}" href="?sede={{ s.id }}">
+          {{ s.nombre }}
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
 
-
-  <div class="d-flex justify-content-end mb-3">
-  <a href="{% url 'exportar_dashboard_pdf' %}?{% if sede_actual %}sede={{ sede_actual.id }}&{% endif %}{% if carrera_actual %}carrera={{ carrera_actual.id }}&{% endif %}" 
-     class="btn btn-outline-danger" target="_blank">
-    <i class="bi bi-file-earmark-pdf"></i> Exportar PDF
-  </a>
-</div>
-
-  <!-- FILTROS -->
-  <form method="get" class="row mb-4 align-items-end">
-    <div class="col-md-4">
-      <label class="form-label">Sede</label>
-      <select class="form-select" name="sede" id="filtroSede" onchange="this.form.submit()">
-        <option value="">-- Todas las sedes --</option>
-        {% for sede in sedes %}
-          <option value="{{ sede.id }}" {% if sede_actual and sede_actual.id == sede.id %}selected{% endif %}>{{ sede.nombre }}</option>
-        {% endfor %}
-      </select>
+  <!-- Título y botón Exportar -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0">
+      Dashboard Global
+      <small class="text-muted">&mdash; {% if sede_sel %}{{ sede_sel.nombre }}{% else %}Todas las sedes{% endif %}</small>
+    </h1>
+    <div class="btn-group">
+      <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+        📥 Exportar
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li>
+          <a class="dropdown-item"
+             href="?sede={% if sede_sel %}{{ sede_sel.id }}{% else %}all{% endif %}&format=pdf">
+            📄 PDF completo
+          </a>
+        </li>
+      </ul>
     </div>
-    <div class="col-md-4">
-      <label class="form-label">Carrera</label>
-      <select class="form-select" name="carrera" id="filtroCarrera" onchange="this.form.submit()">
-        <option value="">-- Todas las carreras --</option>
-        {% for carrera in carreras %}
-          <option value="{{ carrera.id }}" {% if carrera_actual and carrera_actual.id == carrera.id %}selected{% endif %}>
-            {{ carrera.nombre }}
-          </option>
+  </div>
+
+  <!-- Totales generales -->
+  <div class="row g-4 mb-5">
+    <div class="col-md-3"><div class="card text-white bg-primary text-center h-100">
+      <div class="card-body"><h6>Sedes</h6><p class="display-5">{{ total_sedes }}</p></div>
+    </div></div>
+    <div class="col-md-3"><div class="card text-white bg-success text-center h-100">
+      <div class="card-body"><h6>Carreras</h6><p class="display-5">{{ total_carreras }}</p></div>
+    </div></div>
+    <div class="col-md-3"><div class="card text-white bg-info text-center h-100">
+      <div class="card-body"><h6>Asignaturas</h6><p class="display-5">{{ total_asignaturas }}</p></div>
+    </div></div>
+    <div class="col-md-3"><div class="card text-dark bg-warning text-center h-100">
+      <div class="card-body"><h6>Estudiantes</h6><p class="display-5">{{ total_estudiantes }}</p></div>
+    </div></div>
+  </div>
+
+  <!-- Clases y % asistencia -->
+  <div class="row g-4 mb-5">
+    <div class="col-md-6"><div class="card border-secondary text-center h-100">
+      <div class="card-body"><h5>Clases Finalizadas</h5><p class="display-4">{{ total_clases }}</p></div>
+    </div></div>
+    <div class="col-md-6"><div class="card border-secondary text-center h-100">
+      <div class="card-body"><h5>% Asistencia Total</h5><p class="display-4">{{ pct_global }}%</p></div>
+    </div></div>
+  </div>
+
+  <!-- Métricas por Carrera -->
+  <div class="card mb-5">
+    <div class="card-header bg-dark text-white"><h4 class="mb-0">📊 Por Carrera</h4></div>
+    <div class="card-body">
+      <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for c in carreras_stats %}
+          <div class="col"><div class="card h-100">
+            <div class="card-body text-center">
+              <h5>{{ c.nombre }}</h5>
+              {% if c.sede %}<small class="text-muted">{{ c.sede }}</small>{% endif %}
+              <p><strong>Clases:</strong> {{ c.clases }}</p>
+              <p><strong>%:</strong> {{ c.porcentaje }}%</p>
+              <div class="progress" style="height:.75rem;">
+                <div class="progress-bar bg-info" style="width:{{ c.porcentaje }}%;"></div>
+              </div>
+            </div>
+          </div></div>
         {% endfor %}
-      </select>
+      </div>
     </div>
-    <div class="col-md-4">
-      <button class="btn btn-primary" type="submit">Filtrar</button>
-      {% if sede_actual or carrera_actual %}
-        <a href="{% url 'dashboard_admin_global' %}" class="btn btn-outline-secondary ms-2">Limpiar filtros</a>
-      {% endif %}
+  </div>
+
+  <!-- Métricas por Asignatura -->
+  <div class="card mb-5">
+    <div class="card-header bg-dark text-white"><h4 class="mb-0">📚 Por Asignatura</h4></div>
+    <div class="card-body">
+      <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for a in asignaturas_stats %}
+          <div class="col"><div class="card h-100">
+            <div class="card-body text-center">
+              <h5>{{ a.nombre }}</h5>
+              {% if a.sede %}<small class="text-muted">{{ a.sede }}</small>{% endif %}
+              <p><strong>Clases:</strong> {{ a.clases }}</p>
+              <p><strong>%:</strong> {{ a.porcentaje }}%</p>
+              <div class="progress" style="height:.75rem;">
+                <div class="progress-bar bg-success" style="width:{{ a.porcentaje }}%;"></div>
+              </div>
+            </div>
+          </div></div>
+        {% endfor %}
+      </div>
     </div>
-  </form>
-
-  <!-- TARJETAS MÉTRICAS -->
-  <div class="row mb-4">
-    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Sedes</b><div class="fs-3">{{ total_sedes }}</div></div></div>
-    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Carreras</b><div class="fs-3">{{ total_carreras }}</div></div></div>
-    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Asignaturas</b><div class="fs-3">{{ total_asignaturas }}</div></div></div>
-    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Secciones</b><div class="fs-3">{{ total_secciones }}</div></div></div>
-  </div>
-  <div class="row mb-4">
-    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Profesores</b><div class="fs-3">{{ total_profesores }}</div></div></div>
-    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Estudiantes</b><div class="fs-3">{{ total_estudiantes }}</div></div></div>
-    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Clases agendadas</b><div class="fs-3">{{ total_clases }}</div></div></div>
-    <div class="col-md-3"><div class="card p-3 text-center shadow-sm"><b>Clases finalizadas</b><div class="fs-3">{{ total_clases_finalizadas }}</div></div></div>
-  </div>
-  <div class="row mb-4">
-    <div class="col-md-4"><div class="card p-3 text-center shadow-sm"><b>Asistencias totales</b><div class="fs-3">{{ total_asistencias }}</div></div></div>
-    <div class="col-md-4"><div class="card p-3 text-center shadow-sm"><b>% Asistencia global</b><div class="fs-3">{{ porcentaje_asistencia|floatformat:1 }}%</div></div></div>
   </div>
 
-  <!-- SEDE DRILLDOWN -->
-  <h4 class="mt-5 mb-3">Estadísticas por sede</h4>
-  <div class="table-responsive">
-    <table class="table table-striped table-hover align-middle">
-      <thead class="table-light">
-        <tr>
-          <th>Sede</th>
-          <th>Carreras</th>
-          <th>Asignaturas</th>
-          <th>Secciones</th>
-          <th>Profesores</th>
-          <th>Estudiantes</th>
-          <th>Clases</th>
-          <th>Finalizadas</th>
-          <th>% Asistencia</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in sedes_stats %}
-        <tr>
-          <td><b>{{ s.sede.nombre }}</b></td>
-          <td>{{ s.carreras }}</td>
-          <td>{{ s.asignaturas }}</td>
-          <td>{{ s.secciones }}</td>
-          <td>{{ s.profesores }}</td>
-          <td>{{ s.estudiantes }}</td>
-          <td>{{ s.clases }}</td>
-          <td>{{ s.clases_finalizadas }}</td>
-          <td>{{ s.porc_asistencia|floatformat:1 }}%</td>
-        </tr>
+  <!-- Estudiantes por Carrera -->
+  <div class="card">
+    <div class="card-header bg-dark text-white"><h4 class="mb-0">👥 Estudiantes por Carrera</h4></div>
+    <div class="card-body">
+      <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for e in estudiantes_stats %}
+          <div class="col"><div class="card h-100">
+            <div class="card-body text-center">
+              <h5>{{ e.nombre }}</h5>
+              <p class="display-5">{{ e.alumnos }}</p>
+            </div>
+          </div></div>
         {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <!-- ASIGNATURAS RANKING -->
-  <h4 class="mt-5 mb-3">Top 10 Asignaturas por cantidad de estudiantes</h4>
-  <div class="table-responsive">
-    <table class="table table-bordered align-middle">
-      <thead class="table-light">
-        <tr>
-          <th>Asignatura</th>
-          <th>Carrera</th>
-          <th>Sede</th>
-          <th>Estudiantes Inscritos</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for a in asignaturas_ranking %}
-        <tr>
-          <td>{{ a.nombre }}</td>
-          <td>{{ a.carrera.nombre }}</td>
-          <td>{{ a.carrera.sede.nombre }}</td>
-          <td>{{ a.num_estudiantes }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+      </div>
+    </div>
   </div>
 
 </div>

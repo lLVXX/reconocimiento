@@ -11,12 +11,19 @@ from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import JsonResponse
 from django import forms
 import requests
+from django.urls import reverse
+from django.contrib import messages
+from requests.exceptions import RequestException
+from django.db import IntegrityError
 import numpy as np
-
+import os
+import tempfile
 from django.conf import settings
+from django.core.exceptions import ValidationError
 
-
-
+from core.models import CustomUser
+from personas.forms import EstudianteForm
+from personas.models import EstudianteAsignaturaSeccion, EstudianteFoto
 from django.db.models import Count  
 
 from django.db import transaction
@@ -32,50 +39,61 @@ from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib import messages
 from django.shortcuts import render, redirect, get_object_or_404
 
-
+import logging
 
 from .models import Sede, Carrera, Asignatura, Seccion
 from .forms import SedeForm, CarreraForm, AsignaturaForm, SeccionForm
 
 
+logger = logging.getLogger(__name__)
+
 def es_admin_global(user):
     return user.is_authenticated and user.user_type == 'admin_global'
 
 
+@login_required
 @admin_global_required
 def gestionar_sedes(request):
-    sede_id = request.GET.get('editar')
+    sede_id     = request.GET.get('editar')
     eliminar_id = request.GET.get('eliminar')
 
+    # Eliminar
     if eliminar_id:
         sede = get_object_or_404(Sede, id=eliminar_id)
         sede.delete()
         messages.success(request, "Sede eliminada correctamente.")
-        return redirect('gestionar_sedes')
+        # Usamos el namespace 'sedes'
+        return redirect('sedes:gestionar_sedes')
 
+    # Crear o editar
     if sede_id:
-        sede = get_object_or_404(Sede, id=sede_id)
-        form = SedeForm(instance=sede)
+        instancia = get_object_or_404(Sede, id=sede_id)
+        form = SedeForm(instance=instancia)
     else:
+        instancia = None
         form = SedeForm()
 
     if request.method == 'POST':
         if 'sede_id' in request.POST:
-            sede = get_object_or_404(Sede, id=request.POST['sede_id'])
-            form = SedeForm(request.POST, instance=sede)
+            instancia = get_object_or_404(Sede, id=request.POST['sede_id'])
+            form = SedeForm(request.POST, instance=instancia)
         else:
             form = SedeForm(request.POST)
 
         if form.is_valid():
             form.save()
             messages.success(request, "Sede guardada correctamente.")
-            return redirect('gestionar_sedes')
+            return redirect('sedes:gestionar_sedes')
+        else:
+            messages.error(request, "Corrige los errores del formulario.")
 
+    # Listado
     sedes = Sede.objects.all()
     return render(request, 'sedes/gestionar_sedes.html', {
-        'form': form,
-        'sedes': sedes,
-        'editando': sede_id is not None,
+        'form':      form,
+        'sedes':     sedes,
+        'editando':  instancia is not None,
+        'sede_id':   sede_id or '',
     })
 
 
@@ -96,72 +114,130 @@ def admin_zona_required(view_func):
 @login_required
 @admin_zona_required
 def gestionar_carreras(request):
-    editar_id = request.GET.get('editar')
+    editar_id   = request.GET.get('editar')
     eliminar_id = request.GET.get('eliminar')
 
+    # Eliminar carrera
     if eliminar_id:
         carrera = get_object_or_404(Carrera, id=eliminar_id, sede=request.user.workzone)
         carrera.delete()
         messages.success(request, "Carrera eliminada correctamente.")
-        return redirect('gestionar_carreras')
+        return redirect('sedes:gestionar_carreras')
 
+    # Instanciar formulario (edición o creación)
     if editar_id:
         instancia = get_object_or_404(Carrera, id=editar_id, sede=request.user.workzone)
         form = CarreraForm(request.POST or None, instance=instancia)
     else:
         form = CarreraForm(request.POST or None)
 
-    if request.method == 'POST' and form.is_valid():
-        carrera = form.save(commit=False)
-        carrera.sede = request.user.workzone
-        carrera.save()
-        messages.success(request, f"Carrera {'actualizada' if editar_id else 'creada'} correctamente.")
-        return redirect('gestionar_carreras')
+    # Procesar POST (único bloque)
+    if request.method == 'POST':
+        if form.is_valid():
+            nombre = form.cleaned_data['nombre'].strip()
+            # Buscar duplicados en la misma sede
+            qs = Carrera.objects.filter(nombre__iexact=nombre, sede=request.user.workzone)
+            if editar_id:
+                qs = qs.exclude(pk=editar_id)
+            if qs.exists():
+                form.add_error('nombre', 'Ya existe una carrera con ese nombre en tu sede.')
+            else:
+                try:
+                    carrera = form.save(commit=False)
+                    carrera.sede = request.user.workzone
+                    carrera.save()
+                except IntegrityError:
+                    form.add_error('nombre', 'No se pudo guardar: nombre duplicado.')
+                else:
+                    messages.success(
+                        request,
+                        f"Carrera {'actualizada' if editar_id else 'creada'} correctamente."
+                    )
+                    return redirect('sedes:gestionar_carreras')
+        else:
+            messages.error(request, "Revisa los errores del formulario.")
 
+    # Renderizar plantilla con listado actualizado
     carreras = Carrera.objects.filter(sede=request.user.workzone).order_by('nombre')
     return render(request, 'sedes/gestionar_carreras.html', {
         'form': form,
         'carreras': carreras,
-        'editar_id': editar_id
+        'editar_id': editar_id,
     })
 
 
 @login_required
 @admin_zona_required
 def gestionar_asignaturas(request):
-    editar_id = request.GET.get("editar")
-    eliminar_id = request.GET.get("eliminar")
+    editar_id    = request.GET.get("editar")
+    eliminar_id  = request.GET.get("eliminar")
+    carrera_id   = request.GET.get("carrera_id")
 
+    # Listado de carreras para el dropdown
+    carreras = Carrera.objects.filter(sede=request.user.workzone).order_by("nombre")
+
+    # Eliminar asignatura y redirigir manteniendo filtro
     if eliminar_id:
-        Asignatura.objects.filter(id=eliminar_id, carrera__sede=request.user.workzone).delete()
+        Asignatura.objects.filter(
+            id=eliminar_id,
+            carrera__sede=request.user.workzone
+        ).delete()
         messages.success(request, "Asignatura eliminada correctamente.")
-        return redirect("gestionar_asignaturas")
+        url = reverse("sedes:gestionar_asignaturas")
+        if carrera_id:
+            url += f"?carrera_id={carrera_id}"
+        return redirect(url)
 
+    # Instanciar formulario para crear o editar
     if editar_id:
-        instance = get_object_or_404(Asignatura, id=editar_id, carrera__sede=request.user.workzone)
-        form = AsignaturaForm(request.POST or None, instance=instance, sede=request.user.workzone)
+        instance = get_object_or_404(
+            Asignatura,
+            id=editar_id,
+            carrera__sede=request.user.workzone
+        )
+        form = AsignaturaForm(
+            request.POST or None,
+            instance=instance,
+            sede=request.user.workzone
+        )
     else:
-        form = AsignaturaForm(request.POST or None, sede=request.user.workzone)
+        form = AsignaturaForm(
+            request.POST or None,
+            sede=request.user.workzone
+        )
 
+    # Procesar POST (crear/editar)
     if request.method == 'POST':
         if form.is_valid():
             asignatura = form.save(commit=False)
-            if not editar_id:
-                # Solo permitir carreras de su sede
-                if asignatura.carrera.sede != request.user.workzone:
-                    messages.error(request, "No puedes crear una asignatura en otra sede.")
-                    return redirect("gestionar_asignaturas")
-            asignatura.save()
-            messages.success(request, f"{'Asignatura actualizada' if editar_id else 'Asignatura creada'} exitosamente.")
-            return redirect("gestionar_asignaturas")
+            # Validación extra en creación
+            if not editar_id and asignatura.carrera.sede != request.user.workzone:
+                messages.error(request, "No puedes crear una asignatura en otra sede.")
+            else:
+                asignatura.save()
+                messages.success(
+                    request,
+                    f"{'Asignatura actualizada' if editar_id else 'Asignatura creada'} exitosamente."
+                )
+                url = reverse("sedes:gestionar_asignaturas")
+                if carrera_id:
+                    url += f"?carrera_id={carrera_id}"
+                return redirect(url)
         else:
             messages.error(request, "Revisa los errores del formulario.")
 
-    asignaturas = Asignatura.objects.filter(carrera__sede=request.user.workzone).select_related('carrera', 'carrera__sede')
+    # Construir queryset filtrado por carrera si se indicó
+    qs = Asignatura.objects.filter(carrera__sede=request.user.workzone)
+    if carrera_id:
+        qs = qs.filter(carrera__id=carrera_id)
+    asignaturas = qs.select_related('carrera', 'carrera__sede').order_by('nombre')
+
     return render(request, "sedes/gestionar_asignaturas.html", {
-        'form': form,
-        'asignaturas': asignaturas,
-        'editar_id': editar_id
+        'form':             form,
+        'asignaturas':      asignaturas,
+        'carreras':         carreras,
+        'selected_carrera': int(carrera_id) if carrera_id else None,
+        'editar_id':        editar_id,
     })
 
 
@@ -174,7 +250,7 @@ def gestionar_secciones(request):
     if eliminar_id:
         Seccion.objects.filter(id=eliminar_id, asignatura__carrera__sede=request.user.workzone).delete()
         messages.success(request, "Sección eliminada correctamente.")
-        return redirect("gestionar_secciones")
+        return redirect("clases:gestionar_secciones")
 
     if editar_id:
         instance = get_object_or_404(Seccion, id=editar_id, asignatura__carrera__sede=request.user.workzone)
@@ -188,10 +264,10 @@ def gestionar_secciones(request):
             if not editar_id:
                 if seccion.asignatura.carrera.sede != request.user.workzone:
                     messages.error(request, "No puedes crear una sección en otra sede.")
-                    return redirect("gestionar_secciones")
+                    return redirect("clases:gestionar_secciones")
             seccion.save()
             messages.success(request, f"{'Sección actualizada' if editar_id else 'Sección creada'} exitosamente.")
-            return redirect("gestionar_secciones")
+            return redirect("clases:gestionar_secciones")
         else:
             messages.error(request, "Revisa los errores del formulario.")
 
@@ -242,7 +318,7 @@ def gestionar_profesores(request):
         profesor = get_object_or_404(CustomUser, id=eliminar_id, user_type='profesor')
         profesor.delete()
         messages.success(request, "Profesor eliminado correctamente.")
-        return redirect("gestionar_profesores")
+        return redirect("sedes:gestionar_profesores")
 
     if editar_id:
         instance = get_object_or_404(CustomUser, id=editar_id, user_type='profesor')
@@ -291,7 +367,7 @@ def gestionar_profesores(request):
             instance.save()
             form.save_m2m()  # Guardar asignaturas
             messages.success(request, f"{'Actualizado' if editar_id else 'Creado'} correctamente: {username_final}")
-            return redirect("gestionar_profesores")
+            return redirect("sedes:gestionar_profesores")
         else:
             messages.error(request, "Revisa los errores del formulario.")
 
@@ -314,52 +390,15 @@ def gestionar_profesores(request):
 
 
 
-@login_required
-def gestionar_estudiantes(request):
-    from personas.forms import EstudianteForm
-    from core.models import CustomUser
-    from personas.models import EstudianteAsignaturaSeccion
 
-    editar_id = request.GET.get("editar")
-    eliminar_id = request.GET.get("eliminar")
 
-    if eliminar_id:
-        estudiante = get_object_or_404(CustomUser, id=eliminar_id, user_type='estudiante')
-        estudiante.delete()
-        messages.success(request, "Estudiante eliminado correctamente.")
-        return redirect('gestionar_estudiantes')
 
-    if editar_id:
-        instancia = get_object_or_404(CustomUser, id=editar_id, user_type='estudiante')
-        form = EstudianteForm(request.POST or None, request.FILES or None, instance=instancia, user=request.user)
-    else:
-        instancia = None
-        form = EstudianteForm(request.POST or None, request.FILES or None, user=request.user)
 
-    if request.method == 'POST':
-        if form.is_valid():
-            try:
-                estudiante = form.save()
-                messages.success(request, "Estudiante guardado exitosamente.")
-                return redirect('gestionar_estudiantes')
-            except forms.ValidationError as e:
-                form.add_error(None, e)
-                messages.error(request, "Error: " + "; ".join(e.messages))
-            except Exception as e:
-                form.add_error(None, str(e))
-                messages.error(request, f"Error inesperado: {e}")
-        else:
-            messages.error(request, "Error al procesar el formulario. Revisa los datos.")
 
-    estudiantes = CustomUser.objects.filter(user_type='estudiante', sede=request.user.sede)
-    relaciones = EstudianteAsignaturaSeccion.objects.select_related('asignatura', 'seccion', 'estudiante')
 
-    return render(request, 'sedes/gestionar_estudiantes.html', {
-        'form': form,
-        'estudiantes': estudiantes,
-        'editar_id': editar_id,
-        'relaciones': relaciones,
-    })
+
+
+
 
 # --- AJAX: Asignaturas y Secciones por Carrera ---
 @login_required
@@ -430,20 +469,245 @@ def resumen_estudiantes_por_seccion(request):
 ###                        ARCFACE                              ###
 ###################################################################
 
+MICRO_URL = settings.ARC_FACE_URL.rstrip('/')
 
+@login_required
+@admin_zona_required
+def gestionar_estudiantes(request):
+    editar_id    = request.GET.get('editar')
+    eliminar_id  = request.GET.get('eliminar')
+    carrera_id   = request.GET.get('carrera_id')
 
+    # Eliminar
+    if eliminar_id:
+        CustomUser.objects.filter(id=eliminar_id, user_type='estudiante').delete()
+        messages.success(request, 'Estudiante eliminado correctamente.')
+        return redirect('sedes:gestionar_estudiantes')
 
-def obtener_embedding(imagen_path):
+    # Crear / editar formulario
+    if editar_id:
+        alumno = get_object_or_404(CustomUser, id=editar_id, user_type='estudiante')
+        form = EstudianteForm(request.POST or None, request.FILES or None, instance=alumno, user=request.user)
+    else:
+        alumno = None
+        form = EstudianteForm(request.POST or None, request.FILES or None, user=request.user)
+
+    # Procesar POST
+    if request.method == 'POST':
+        if form.is_valid():
+            try:
+                with transaction.atomic():
+                    alumno = form.save()
+                    img = form.cleaned_data['imagen']
+                    img.seek(0)
+                    files = {'file': (img.name, img.read(), img.content_type)}
+                    resp = requests.post(f"{MICRO_URL}/generar_embedding/", files=files, timeout=15)
+                    data = resp.json()
+                    if not data.get('ok'):
+                        raise ValidationError(data.get('msg', 'No se detectó rostro.'))
+                    embedding = data['embedding']
+
+                    # Guardar foto-base y embedding
+                    EstudianteFoto.objects.filter(estudiante=alumno, es_base=True).delete()
+                    EstudianteFoto.objects.create(
+                        estudiante=alumno,
+                        imagen=form.cleaned_data['imagen'],
+                        embedding=embedding,
+                        es_base=True
+                    )
+
+                    # Asignaciones automáticas
+                    for asig in Asignatura.objects.filter(carrera=alumno.carrera):
+                        seccs = Seccion.objects.filter(asignatura=asig) \
+                            .annotate(num_est=Count('relaciones_estudiantes_asignatura'))
+                        sec = next((s for s in seccs if s.num_est < 30), None)
+                        if not sec:
+                            sec = Seccion.objects.create(
+                                nombre=f"{asig.nombre[:6]}-{asig.id}A",
+                                asignatura=asig
+                            )
+                        EstudianteAsignaturaSeccion.objects.get_or_create(
+                            estudiante=alumno,
+                            asignatura=asig,
+                            defaults={'seccion': sec}
+                        )
+
+                messages.success(request, 'Estudiante guardado y embedding generado.')
+                return redirect('sedes:gestionar_estudiantes')
+
+            except ValidationError as e:
+                messages.error(request, e.message)
+            except Exception as e:
+                messages.error(request, f'Error inesperado: {e}')
+        else:
+            messages.error(request, 'Corrige los errores del formulario.')
+
+    # Construir query de estudiantes con filtro
+    qs = CustomUser.objects.filter(user_type='estudiante', sede=request.user.sede)
+    if carrera_id:
+        qs = qs.filter(carrera_id=carrera_id)
+
+    estudiantes = qs.order_by('last_name', 'first_name')
+
+    # Para el filtro en el template
+    carreras = Carrera.objects.filter(sede=request.user.sede).order_by('nombre')
+    selected_carrera = int(carrera_id) if carrera_id else None
+
+    # Fotos base y asignaciones
+    fotos_base = {
+        f.estudiante_id: f.imagen.url
+        for f in EstudianteFoto.objects.filter(estudiante__in=estudiantes, es_base=True)
+    }
+    relaciones = EstudianteAsignaturaSeccion.objects.filter(estudiante__in=estudiantes)
+    asignaciones = {}
+    for rel in relaciones:
+        asignaciones.setdefault(rel.estudiante_id, []).append(
+            f"{rel.asignatura.nombre}: {rel.seccion.nombre}"
+        )
+
+    return render(request, 'sedes/gestionar_estudiantes.html', {
+        'form': form,
+        'estudiantes': estudiantes,
+        'fotos_base': fotos_base,
+        'asignaciones': asignaciones,
+        'editar_id': editar_id,
+        'carreras': carreras,
+        'selected_carrera': selected_carrera,
+    })
+
+def obtener_embedding(imagen_source):
     """
-    Llama al endpoint /match/ o a /detect/ para obtener el embedding
-    (asumiendo que tu FastAPI expone /embedding/ si la creaste).
-    Si usas /match/, ajusta el parseo.
+    Llama al microservicio ONNX/ArcFace para generar el embedding.
+    Guarda la última respuesta JSON en _last_response para depuración.
     """
-    url = settings.ARC_FACE_URL + "/match/"
-    with open(imagen_path, "rb") as f:
-        files = {'file': f}
-        resp = requests.post(url, files=files)
+    url = settings.ARC_FACE_URL.rstrip("/") + "/generar_embedding/"
+    logger.debug("Llamando a %s", url)
+
+    # Preparar payload
+    if hasattr(imagen_source, 'read'):
+        imagen_source.seek(0)
+        contenido = imagen_source.read()
+        filename = imagen_source.name
+        content_type = imagen_source.content_type
+    else:
+        filename = imagen_source.split('/')[-1]
+        content_type = 'application/octet-stream'
+        with open(imagen_source, 'rb') as f:
+            contenido = f.read()
+
+    logger.debug("Payload preparado: filename=%s, content_type=%s, bytes=%d",
+                 filename, content_type, len(contenido))
+
+    files = {'file': (filename, contenido, content_type)}
+    data = None
+
+    try:
+        resp = requests.post(url, files=files, timeout=15)
+        logger.debug("Respuesta HTTP %d", resp.status_code)
         resp.raise_for_status()
+        text = resp.text
+        logger.debug("Contenido de respuesta: %s", text[:500])
         data = resp.json()
-    # ejemplo si tu FastAPI devolviera {"embedding": [...]}:
-    return np.array(data['embedding'], dtype=np.float32)
+        setattr(obtener_embedding, "_last_response", data)
+        logger.debug("JSON parseado: %s", data)
+
+        if data.get('ok') and 'embedding' in data:
+            emb = np.array(data['embedding'], dtype=np.float32)
+            logger.debug("Embedding generado de longitud %d", len(emb))
+            return emb
+
+    except requests.Timeout:
+        logger.exception("Timeout al conectar con el microservicio")
+    except requests.HTTPError as e:
+        logger.exception("Error HTTP %s", e)
+    except ValueError as e:
+        logger.exception("JSON inválido recibida")
+    except Exception as e:
+        logger.exception("Error inesperado en obtener_embedding")
+
+    setattr(obtener_embedding, "_last_response", data)
+    return None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+@login_required
+@admin_zona_required
+def sync_secciones(request, est_id):
+    alumno = get_object_or_404(CustomUser, id=est_id, user_type='estudiante', sede=request.user.sede)
+
+    # Todas las asignaturas de su carrera
+    asignaturas = Asignatura.objects.filter(carrera=alumno.carrera)
+
+    for asig in asignaturas:
+        # ¿Ya está inscrito?
+        exists = EstudianteAsignaturaSeccion.objects.filter(
+            estudiante=alumno, asignatura=asig
+        ).exists()
+        if not exists:
+            # buscamos sección con menos alumnos
+            seccs = (Seccion.objects
+                     .filter(asignatura=asig)
+                     .annotate(num_est=Count('relaciones_estudiantes_asignatura'))
+                     .order_by('num_est'))
+            if seccs:
+                sec = seccs.first()
+            else:
+                sec = Seccion.objects.create(
+                    nombre=f"{asig.nombre[:6]}-{asig.id}A",
+                    asignatura=asig
+                )
+            EstudianteAsignaturaSeccion.objects.create(
+                estudiante=alumno,
+                asignatura=asig,
+                seccion=sec
+            )
+
+    messages.success(request, f'Secciones sincronizadas para {alumno.get_full_name()}.')
+    return redirect('gestionar_estudiantes')
+
+
+@login_required
+@admin_zona_required
+def sync_todas_secciones(request):
+    """
+    Recorre todos los estudiantes de la sede del admin_zona y auto-inscribe
+    en cualquier asignatura de su carrera que aún no tengan asignada.
+    """
+    sede = request.user.sede
+    estudiantes = CustomUser.objects.filter(user_type='estudiante', sede=sede)
+
+    for alumno in estudiantes:
+        asignaturas = Asignatura.objects.filter(carrera=alumno.carrera)
+        for asig in asignaturas:
+            if not EstudianteAsignaturaSeccion.objects.filter(
+                   estudiante=alumno, asignatura=asig
+               ).exists():
+                # elige la sección con menos estudiantes o crea una nueva
+                seccs = (Seccion.objects
+                         .filter(asignatura=asig)
+                         .annotate(num_est=Count('relaciones_estudiantes_asignatura'))
+                         .order_by('num_est'))
+                if seccs:
+                    sec = seccs.first()
+                else:
+                    sec = Seccion.objects.create(
+                        nombre=f"{asig.nombre[:6]}-{asig.id}A", asignatura=asig
+                    )
+                EstudianteAsignaturaSeccion.objects.create(
+                    estudiante=alumno, asignatura=asig, seccion=sec
+                )
+
+    messages.success(request, "Secciones sincronizadas para todos los estudiantes.")
+    return redirect('sedes:gestionar_estudiantes')

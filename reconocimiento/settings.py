@@ -28,10 +28,11 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
-ARC_FACE_URL = os.getenv(
-    "ARC_FACE_URL",
-    "http://127.0.0.1:8000"
-)
+# URL del microservicio de ArcFace
+ARC_FACE_URL = "http://localhost:8001"
+# Base para WebSocket (se transformará http -> ws en la vista)
+ARC_FACE_WS  = "http://localhost:8001"
+
 
 # Application definition
 
@@ -46,10 +47,15 @@ INSTALLED_APPS = [
     'sedes',
     'personas',
     'clases',
+    'pgvector',
+    'corsheaders',
+
     
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',  # ¡primero!
+    'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -75,6 +81,18 @@ TEMPLATES = [
         },
     },
 ]
+
+
+# Orígenes permitidos:
+CORS_ALLOWED_ORIGINS = [
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8001",  # your FastAPI
+    
+]
+
+# Si necesitas permitir credenciales (cookies, auth):
+CORS_ALLOW_CREDENTIALS = True
 
 WSGI_APPLICATION = 'reconocimiento.wsgi.application'
 

@@ -39,7 +39,7 @@
                 <i class="bi bi-house-fill"></i> Inicio
               </a>
             {% elif user.user_type == 'profesor' %}
-              <a class="nav-link" href="{% url 'dashboard_profesor' %}">
+              <a class="nav-link" href="{% url 'clases:dashboard_profesor' %}">
                 <i class="bi bi-house-fill"></i> Mis Clases
               </a>
             {% endif %}
@@ -48,12 +48,12 @@
           <!-- Menú Profesor -->
           {% if user.user_type == 'profesor' %}
             <li class="nav-item">
-              <a class="nav-link" href="{% url 'horario_profesor' %}">
+              <a class="nav-link" href="{% url 'clases:horario_profesor' %}">
                 <i class="bi bi-calendar-week"></i> Mi Horario
               </a>
             </li>
             <li class="nav-item">
-              <a class="nav-link" href="{% url 'historial_clases' %}">
+              <a class="nav-link" href="{% url 'clases:listado_instancias' %}">
                 <i class="bi bi-clock-history"></i> Historial de Clases
               </a>
             </li>
@@ -66,23 +66,23 @@
                 <i class="bi bi-tools"></i> Gestionar
               </a>
               <ul class="dropdown-menu" aria-labelledby="gestionarDropdown">
-                <li><a class="dropdown-item" href="{% url 'gestionar_carreras' %}"><i class="bi bi-diagram-3"></i> Carreras</a></li>
-                <li><a class="dropdown-item" href="{% url 'gestionar_asignaturas' %}"><i class="bi bi-book"></i> Asignaturas</a></li>
-                <li><a class="dropdown-item" href="{% url 'gestionar_secciones' %}"><i class="bi bi-list-ol"></i> Secciones</a></li>
-                <li><a class="dropdown-item" href="{% url 'gestionar_profesores' %}"><i class="bi bi-person"></i> Profesores</a></li>
-                <li><a class="dropdown-item" href="{% url 'gestionar_estudiantes' %}"><i class="bi bi-people"></i> Estudiantes</a></li>
+                <li><a class="dropdown-item" href="{% url 'sedes:gestionar_carreras' %}"><i class="bi bi-diagram-3"></i> Carreras</a></li>
+                <li><a class="dropdown-item" href="{% url 'sedes:gestionar_asignaturas' %}"><i class="bi bi-book"></i> Asignaturas</a></li>
+                <li><a class="dropdown-item" href="{% url 'sedes:gestionar_secciones' %}"><i class="bi bi-list-ol"></i> Secciones</a></li>
+                <li><a class="dropdown-item" href="{% url 'sedes:gestionar_profesores' %}"><i class="bi bi-person"></i> Profesores</a></li>
+                <li><a class="dropdown-item" href="{% url 'sedes:gestionar_estudiantes' %}"><i class="bi bi-people"></i> Estudiantes</a></li>
                 <li>
-                  <a class="dropdown-item" href="{% url 'gestionar_bloques_horarios' %}">
+                  <a class="dropdown-item" href="{% url 'clases:gestionar_bloques_horarios' %}">
                     <i class="bi bi-clock"></i> Bloques Horarios
                   </a>
                 </li>
                 <li>
-                  <a class="dropdown-item" href="{% url 'gestionar_aulas' %}">
+                  <a class="dropdown-item" href="{% url 'clases:gestionar_aulas' %}">
                     <i class="bi bi-door-open"></i> Aulas
                   </a>
                 </li>
                 <li>
-                  <a class="dropdown-item" href="{% url 'gestionar_clases' %}">
+                  <a class="dropdown-item" href="{% url 'clases:gestionar_clases' %}">
                     <i class="bi bi-easel"></i> Clases
                   </a>
                 </li>
@@ -98,7 +98,7 @@
           <!-- Menú Admin Global -->
           {% if user.user_type == 'admin_global' %}
             <li class="nav-item">
-              <a class="nav-link" href="{% url 'gestionar_sedes' %}">
+              <a class="nav-link" href="{% url 'sedes:gestionar_sedes' %}">
                 <i class="bi bi-building"></i> Crear Sede
               </a>
             </li>

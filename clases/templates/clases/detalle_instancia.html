@@ -1,85 +1,176 @@
-{% extends 'core/base.html' %}
+{% extends "core/base.html" %}
 {% load static %}
+{% load dict_extras %}
+
+{% block title %}Detalle de Clase{% endblock %}
+
 {% block content %}
-<div class="container mt-4">
-  <h2>Asistencia - {{ instancia.fecha|date:"d/m/Y" }}</h2>
+<div class="container my-4">
+  <h1>
+    Clase: {{ instancia.version.plantilla.seccion.asignatura.nombre }}
+    – {{ instancia.version.plantilla.seccion.nombre }}
+  </h1>
+  <p><strong>Profesor:</strong> {{ instancia.version.plantilla.profesor.get_full_name }}</p>
+  <p>
+    <strong>Fecha:</strong>
+    {{ instancia.fecha|date:"d/m/Y" }} {{ instancia.fecha|time:"H:i" }}
+  </p>
 
   <div class="mb-3">
-    <video id="videoFeed" width="480" height="360" autoplay muted
-           style="border:2px solid #333;"></video>
-    <button id="btnRec" class="btn btn-primary mt-2">
-      Iniciar Reconocimiento Facial
-    </button>
+    <button id="btnTransmitir" class="btn btn-primary">Iniciar transmisión</button>
+    <button id="btnFinalizar"  class="btn btn-danger" disabled>Finalizar clase</button>
   </div>
 
-  <div class="row" id="estudiantes-grid">
-    {% for est in estudiantes %}
-    <div class="col-md-3 mb-3">
-      <div class="card text-white bg-danger estudiante-card"
-           data-est-id="{{ est.id }}" id="card-{{ est.id }}">
-        <div class="card-body">
-          <h5 class="card-title">{{ est.get_full_name }}</h5>
-          <p class="card-text">RUT: {{ est.rut }}</p>
-          <span class="badge present-badge d-none">Presente</span>
-        </div>
+  <div class="row">
+    <div class="col-md-6">
+      <video id="videoFeed" autoplay muted playsinline class="w-100 border"></video>
+      <canvas id="canvasCapture" width="320" height="240" style="display:none;"></canvas>
+    </div>
+    <div class="col-md-6">
+      <h4>Estudiantes Inscritos</h4>
+      <div class="row" id="cardsContainer">
+        {% for est in estudiantes %}
+          <div id="card-{{ est.id }}" class="col-6 mb-3 student-card">
+            <div class="card border-secondary p-2">
+              <div class="card-body text-center">
+                <strong>{{ est.get_full_name }}</strong><br>
+                <small>{{ est.rut }}</small><br>
+                <span class="badge {% if asistencias|get_item:est.id %}bg-success{% else %}bg-secondary{% endif %}">
+                  {% if asistencias|get_item:est.id %}Presente{% else %}No detectado{% endif %}
+                </span>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
       </div>
     </div>
-    {% empty %}
-    <div class="col-12">
-      <div class="alert alert-info">No hay estudiantes inscritos.</div>
-    </div>
-    {% endfor %}
   </div>
-
-  <button class="btn btn-secondary" onclick="history.back()">← Volver</button>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-const MATCH_URL = "{{ match_url }}";
-const video = document.getElementById('videoFeed');
-const btn   = document.getElementById('btnRec');
-
-navigator.mediaDevices.getUserMedia({video:true})
-  .then(s => video.srcObject = s).catch(console.error);
-
-let activo=false, timer;
-btn.onclick = () => {
-  activo = !activo;
-  btn.textContent = activo ? 'Detener Reconocimiento Facial'
-                           : 'Iniciar Reconocimiento Facial';
-  activo ? runMatch() : clearTimeout(timer);
-};
-
-async function runMatch(){
-  if (!activo) return;
-  const c=document.createElement('canvas'),
-        ctx=c.getContext('2d');
-  c.width=video.videoWidth;  c.height=video.videoHeight;
-  ctx.drawImage(video,0,0);
-  const blob = await new Promise(r=>c.toBlob(r,'image/jpeg'));
-  const form = new FormData();
-  form.append('file', blob, 'frame.jpg');
-  form.append('est_id', 0);  // opcional: si mandas el id
-
-  fetch(MATCH_URL,{method:'POST',body:form})
-    .then(r=>r.json())
-    .then(data=>{
-      if(data.ok){
-        data.results.forEach(r=>{
-          const card=document.getElementById(`card-${r.estudiante_id}`);
-          if(!card) return;
-          if(r.match){
-            card.classList.replace('bg-danger','bg-success');
-            card.querySelector('.present-badge').classList.remove('d-none');
-          } else {
-            card.classList.replace('bg-success','bg-danger');
-          }
-        });
-      }
-      timer = setTimeout(runMatch,2000);
-    }).catch(console.error);
+// CSRF helper
+function getCookie(name) {
+  let v = null;
+  document.cookie.split(';').forEach(c => {
+    c = c.trim();
+    if (c.startsWith(name + '=')) v = decodeURIComponent(c.slice(name.length+1));
+  });
+  return v;
 }
+const csrftoken     = getCookie('csrftoken');
+const btnTransmitir = document.getElementById('btnTransmitir');
+const btnFinalizar  = document.getElementById('btnFinalizar');
+const video         = document.getElementById('videoFeed');
+const canvas        = document.getElementById('canvasCapture');
+const ctx           = canvas.getContext('2d');
+
+let ws, streaming=false, intervalId;
+const detected = new Set();
+
+const wsUrl         = "{{ ws_url }}".replace(/^http/, 'ws');
+const asistenciaUrl = "{{ asistencia_url }}";
+const finishUrl     = "{{ finish_url }}";
+
+function captureAndSend() {
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  canvas.toBlob(blob => {
+    if (ws?.readyState === WebSocket.OPEN) ws.send(blob);
+  }, 'image/jpeg', 0.7);
+}
+
+async function onWsMessage(evt) {
+  let data = JSON.parse(evt.data);
+  const faces = Array.isArray(data) ? data : data.faces;
+  for (const f of faces) {
+    const id = f.match_id;
+    if (id!=null && !detected.has(id)) {
+      detected.add(id);
+      const card  = document.getElementById(`card-${id}`);
+      const badge = card?.querySelector('.badge');
+      if (badge) {
+        badge.textContent = 'Presente';
+        badge.classList.replace('bg-secondary','bg-success');
+      }
+      await fetch(asistenciaUrl, {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': csrftoken,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ estudiante: id })
+      });
+      btnFinalizar.disabled = false;
+    }
+  }
+}
+
+// start/stop streaming
+btnTransmitir.addEventListener('click', async () => {
+  if (!streaming) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({video:true});
+      video.srcObject = stream;
+      await video.play();
+      ws = new WebSocket(wsUrl);
+      ws.onopen    = () => console.log('WebSocket conectado');
+      ws.onmessage = onWsMessage;
+      intervalId   = setInterval(captureAndSend, 250);
+      streaming    = true;
+      btnTransmitir.textContent = 'Detener transmisión';
+      btnTransmitir.classList.replace('btn-primary','btn-warning');
+    } catch(e) {
+      alert('Error cámara: '+e);
+    }
+  } else {
+    streaming = false;
+    clearInterval(intervalId);
+    ws.close();
+    video.srcObject.getTracks().forEach(t=>t.stop());
+    btnTransmitir.textContent = 'Iniciar transmisión';
+    btnTransmitir.classList.replace('btn-warning','btn-primary');
+  }
+});
+
+// manual toggle on card click
+document.querySelectorAll('.student-card').forEach(card => {
+  card.addEventListener('click', async () => {
+    const [, id] = card.id.split('-');
+    if (!id) return;
+    const badge = card.querySelector('.badge');
+    const isPresent = badge.classList.contains('bg-success');
+    // toggle classes and text
+    badge.classList.toggle('bg-success', !isPresent);
+    badge.classList.toggle('bg-secondary', isPresent);
+    badge.textContent = isPresent ? 'No detectado' : 'Presente';
+    // send manual override with new state
+    await fetch(asistenciaUrl, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': csrftoken,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        estudiante: parseInt(id),
+        manual:     true,
+        presente:   !isPresent
+      })
+    });
+    btnFinalizar.disabled = false;
+  });
+});
+
+// finish class
+btnFinalizar.addEventListener('click', async () => {
+  if (streaming) btnTransmitir.click();
+  const resp = await fetch(finishUrl, {
+    method: 'POST',
+    headers: {'X-CSRFToken': csrftoken}
+  });
+  const json = await resp.json();
+  if (json.ok) window.location.href = json.url_reporte;
+  else alert('Error al finalizar la clase');
+});
 </script>
 {% endblock %}

@@ -1,5 +1,6 @@
 {% extends "core/base.html" %}
 {% load dict_extras %}
+
 {% block content %}
 <div class="container mt-4">
   <h2 class="mb-4 text-dark">Gestión de Horario Semanal</h2>
@@ -11,7 +12,9 @@
   {# 1) Selección de Profesor #}
   <form method="get" class="mb-4 d-flex align-items-center">
     <label class="me-2 text-secondary"><strong>Profesor:</strong></label>
-    <select name="profesor" class="form-select w-auto bg-dark text-white" onchange="this.form.submit()">
+    <select name="profesor"
+            class="form-select w-auto bg-dark text-white"
+            onchange="this.form.submit()">
       <option value="">-- Selecciona --</option>
       {% for p in profesores %}
         <option value="{{ p.id }}"
@@ -29,7 +32,9 @@
     <div class="card mb-4 bg-secondary text-white">
       <div class="card-body">
         <h5 class="card-title"><i class="bi bi-journal-plus"></i> Crear Nueva Plantilla</h5>
-        <form method="post" action="?profesor={{ selected_profesor.id }}" class="row g-3 align-items-end">
+        <form method="post"
+              action="?profesor={{ selected_profesor.id }}"
+              class="row g-3 align-items-end">
           {% csrf_token %}
           {{ form.non_field_errors }}
           <div class="col-md-3">
@@ -60,119 +65,119 @@
         </form>
       </div>
     </div>
-  {% endif %}
 
-  {% if selected_profesor and any_publicada %}
-    {# Selector de Semana #}
-    <form method="get" class="mb-3 d-flex align-items-center">
-      <input type="hidden" name="profesor" value="{{ selected_profesor.id }}">
-      <label class="me-2 text-secondary"><strong>Semana:</strong></label>
-      <select name="semana" class="form-select w-auto bg-dark text-white" onchange="this.form.submit()">
-        {% for s in semanas %}
-          <option value="{{ s.id }}" {% if s == sem_act %}selected{% endif %}>
-            Semana {{ s.numero }}
-          </option>
-        {% endfor %}
-      </select>
+    {# 3) Formulario Publicar Semestre — siempre visible #}
+    <form method="post"
+          action="?profesor={{ selected_profesor.id }}"
+          class="mb-4">
+      {% csrf_token %}
+      <button name="publicar" class="btn btn-warning">
+        <i class="bi bi-upload me-1"></i> Publicar semestre
+      </button>
     </form>
-  {% endif %}
 
-  {# 5) Tablero Semanal #}
-  <div class="table-responsive">
-    <table class="table table-hover text-center align-middle">
-      <thead class="table-dark">
-        <tr>
-          <th>Bloque / Día</th>
-          {% for dn in dias_nombres %}<th>{{ dn }}</th>{% endfor %}
-        </tr>
-      </thead>
-      <tbody>
-        {% for b in bloques %}
-          <tr>
-            <th class="bg-light text-start ps-3" style="white-space:nowrap;">
-              <div class="fw-semibold">{{ b.nombre }}</div>
-              <small class="text-muted">{{ b.hora_inicio|time:"H:i" }}–{{ b.hora_fin|time:"H:i" }}</small>
-            </th>
-            {% for dia in dias %}
-              <td>
-                {% with cell=matriz|dict_get:dia|dict_get:b.id %}
-                  {% if cell %}
-                    <div class="position-relative d-inline-block" style="width:12rem;">
-                      <div class="card bg-info shadow text-white" style="border-radius:.75rem;">
-                        <div class="card-body p-2">
-                          <h6 class="card-title mb-1">
-                            <i class="bi bi-book-half me-1"></i>
-                            {% if any_publicada %}
-                              {{ cell.version.plantilla.seccion.asignatura.nombre }}
-                            {% else %}
-                              {{ cell.seccion.asignatura.nombre }}
-                            {% endif %}
-                          </h6>
-                          <p class="card-text small mb-2">
-                            {% if any_publicada %}
-                              Sección <strong>{{ cell.version.plantilla.seccion.nombre }}</strong><br>
-                              Aula <strong>{{ cell.version.plantilla.aula.numero_sala }}</strong>
-                            {% else %}
-                              Sección <strong>{{ cell.seccion.nombre }}</strong><br>
-                              Aula <strong>{{ cell.aula.numero_sala }}</strong>
-                            {% endif %}
-                          </p>
-                          <span class="badge bg-dark text-white position-absolute bottom-0 end-0 m-1">
-                            {% if any_publicada %}
-                              {{ counts_map|get_item:cell.version.plantilla.seccion.id|default:0 }}
-                            {% else %}
-                              {{ counts_map|get_item:cell.seccion.id|default:0 }}
-                            {% endif %}
-                            Est.
-                          </span>
+    {# 4) Selector de Semana — siempre visible si hay semanas definidas #}
+    {% if semanas %}
+      <form method="get" class="mb-3 d-flex align-items-center">
+        <input type="hidden" name="profesor" value="{{ selected_profesor.id }}">
+        <label class="me-2 text-secondary"><strong>Semana:</strong></label>
+        <select name="semana"
+                class="form-select w-auto bg-dark text-white"
+                onchange="this.form.submit()">
+          {% for s in semanas %}
+            <option value="{{ s.id }}" {% if s == sem_act %}selected{% endif %}>
+              Semana {{ s.numero }} ({{ s.fecha_inicio|date:"d/m/Y" }})
+            </option>
+          {% endfor %}
+        </select>
+      </form>
+    {% endif %}
 
-                          {# Botones: Eliminar y Editar #}
-                          <div class="position-absolute top-0 start-0 m-1 d-flex gap-1">
-                            <button
-                              class="btn btn-sm btn-light p-1"
-                              style="font-size:0.75rem;"
-                              onclick="openModal(this)"
-                              data-action="eliminar_inst"
-                              data-id="{{ cell.id }}">
-                              <i class="bi bi-trash-fill text-danger"></i>
-                            </button>
-                            <button
-                              class="btn btn-sm btn-light p-1"
-                              style="font-size:0.75rem;"
-                              onclick="openModal(this)"
-                              data-action="editar_plantilla"
-                              data-id="{% if any_publicada %}{{ cell.version.plantilla.id }}{% else %}{{ cell.id }}{% endif %}"
-                              data-asignatura="{% if any_publicada %}{{ cell.version.plantilla.seccion.asignatura.id }}{% else %}{{ cell.seccion.asignatura.id }}{% endif %}"
-                              data-seccion="{% if any_publicada %}{{ cell.version.plantilla.seccion.id }}{% else %}{{ cell.seccion.id }}{% endif %}"
-                              data-aula="{% if any_publicada %}{{ cell.version.plantilla.aula.id }}{% else %}{{ cell.aula.id }}{% endif %}">
-                              <i class="bi bi-pencil-fill text-warning"></i>
-                            </button>
+    {# 5) Tablero Semanal — sólo si ya hay algo publicado #}
+    {% if any_publicada %}
+      <div class="table-responsive">
+        <table class="table table-hover text-center align-middle">
+          <thead class="table-dark">
+            <tr>
+              <th>Bloque / Día</th>
+              {% for dn in dias_nombres %}<th>{{ dn }}</th>{% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for b in bloques %}
+              <tr>
+                <th class="bg-light text-start ps-3" style="white-space:nowrap;">
+                  <div class="fw-semibold">{{ b.nombre }}</div>
+                  <small class="text-muted">
+                    {{ b.hora_inicio|time:"H:i" }}–{{ b.hora_fin|time:"H:i" }}
+                  </small>
+                </th>
+                {% for dia in dias %}
+                  <td>
+                    {% with cell=matriz|dict_get:dia|dict_get:b.id %}
+                      {% if cell %}
+                        <div class="position-relative d-inline-block" style="width:12rem;">
+                          <div class="card bg-info shadow text-white" style="border-radius:.75rem;">
+                            <div class="card-body p-2">
+                              <h6 class="card-title mb-1">
+                                <i class="bi bi-book-half me-1"></i>
+                                {{ cell.version.plantilla.seccion.asignatura.nombre }}
+                              </h6>
+                              <p class="card-text small mb-2">
+                                Sección <strong>{{ cell.version.plantilla.seccion.nombre }}</strong><br>
+                                Aula <strong>{{ cell.version.plantilla.aula.numero_sala }}</strong>
+                              </p>
+                              <span class="badge bg-dark text-white position-absolute bottom-0 end-0 m-1">
+                                {{ counts_map|get_item:cell.version.plantilla.seccion.id|default:0 }} Est.
+                              </span>
+
+                              {# Botones: Eliminar y Editar #}
+                              <div class="position-absolute top-0 start-0 m-1 d-flex gap-1">
+                                <button
+                                  class="btn btn-sm btn-light p-1"
+                                  style="font-size:0.75rem;"
+                                  onclick="openModal(this)"
+                                  data-action="eliminar_inst"
+                                  data-id="{{ cell.id }}">
+                                  <i class="bi bi-trash-fill text-danger"></i>
+                                </button>
+                                <button
+                                  class="btn btn-sm btn-light p-1"
+                                  style="font-size:0.75rem;"
+                                  onclick="openModal(this)"
+                                  data-action="editar_plantilla"
+                                  data-id="{{ cell.version.plantilla.id }}"
+                                  data-asignatura="{{ cell.version.plantilla.seccion.asignatura.id }}"
+                                  data-seccion="{{ cell.version.plantilla.seccion.id }}"
+                                  data-aula="{{ cell.version.plantilla.aula.id }}">
+                                  <i class="bi bi-pencil-fill text-warning"></i>
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </div>
-                  {% else %}
-                    &mdash;
-                  {% endif %}
-                {% endwith %}
-              </td>
+                      {% else %}
+                        &mdash;
+                      {% endif %}
+                    {% endwith %}
+                  </td>
+                {% endfor %}
+              </tr>
             {% endfor %}
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  {% endif %}
 
   {# Modal Editar/Eliminar #}
   <div class="modal fade" id="alcanceModal" tabindex="-1">
     <div class="modal-dialog">
-      {# Establecemos action con los GET params para profesor + semana #}
       <form id="alcanceForm"
             action="?profesor={{ selected_profesor.id }}{% if sem_act %}&semana={{ sem_act.id }}{% endif %}"
             method="post"
             class="modal-content">
         {% csrf_token %}
-        {# Hidden inputs: action, target, profesor, semana se pasan via action URL y aquí #}
         <input type="hidden" name="action" id="modal_action">
         <input type="hidden" name="target_id" id="modal_target">
         <div class="modal-header bg-info text-white">
@@ -224,7 +229,7 @@
       if (A && S) {
         A.onchange = () => {
           S.innerHTML = '<option>Cargando…</option>';
-          fetch("{% url 'get_secciones_ajax' %}?asignatura_id=" + A.value)
+          fetch("{% url 'clases:get_secciones_ajax' %}?asignatura_id=" + A.value)
             .then(r => r.json())
             .then(data => {
               S.innerHTML = '<option value=\"\">---------</option>';
@@ -248,7 +253,7 @@
         if (act === 'editar_plantilla') {
           editF.classList.remove('d-none');
           // cargar asignaturas
-          fetch("{% url 'get_asignaturas_ajax' %}")
+          fetch("{% url 'clases:get_asignaturas_ajax' %}")
             .then(r => r.json())
             .then(data => {
               const selA = document.getElementById('modal_asignatura');
@@ -261,7 +266,7 @@
             });
           // luego secciones
           setTimeout(() => {
-            fetch("{% url 'get_secciones_ajax' %}?asignatura_id=" + btn.dataset.asignatura)
+            fetch("{% url 'clases:get_secciones_ajax' %}?asignatura_id=" + btn.dataset.asignatura)
               .then(r => r.json())
               .then(data => {
                 const selS = document.getElementById('modal_seccion');
