@@ -113,7 +113,7 @@ DATABASES = {
         'NAME': 'SCOUT_DB',
         'USER': 'postgres',
         'PASSWORD': '12345678',
-        'HOST': 'localhost',
+        'HOST': 'db',
         'PORT': '5432',  # Puerto por defecto de PostgreSQL
     }
 }
