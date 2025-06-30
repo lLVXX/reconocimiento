@@ -1,0 +1,43 @@
+# ✅ Carpetas virtualenv
+venv/
+.env
+.env.*
+
+# ✅ Archivos temporales de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.db
+*.sqlite3
+
+# ✅ Archivos y carpetas de Django
+db.sqlite3
+media/
+staticfiles/
+
+# 🔥 Docker
+docker-compose.override.yml
+*.pid
+
+# 🔥 Editor y entorno local
+*.swp
+.idea/
+.vscode/
+*.bak
+*.tmp
+
+# 🔥 Archivos compilados o descargados
+*.zip
+*.tar.gz
+*.egg-info/
+dist/
+build/
+
+# 🔥 Archivos de modelo ArcFace / embeddings
+**/models/**
+**/embeddings/**
+
+# 🔥 Archivos temporales usados por Celery
+celerybeat-schedule

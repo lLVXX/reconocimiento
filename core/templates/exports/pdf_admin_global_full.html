@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family:sans-serif; padding:1rem; }
+    h1,h2,h3,h4 { margin:.5rem 0; }
+    table { width:100%; border-collapse:collapse; margin:.75rem 0; }
+    th,td { border:1px solid #333; padding:.4rem; font-size:10px; }
+    th { background:#eee; }
+    .right { text-align:right; }
+    .indent-1 { margin-left:1rem; }
+    .indent-2 { margin-left:2rem; }
+  </style>
+</head>
+<body>
+  <h1>Dashboard Global – {{ sede_sel }}</h1>
+  {% for sede in sedes_data %}
+    <h2>Sede: {{ sede.nombre }}</h2>
+    {% for carrera in sede.carreras %}
+      <h3 class="indent-1">Carrera: {{ carrera.nombre }}</h3>
+      <table class="indent-1">
+        <thead>
+          <tr>
+            <th>Sección</th>
+            <th>Asignatura</th>
+            <th class="right">Clases</th>
+            <th class="right">Manual</th>
+            <th class="right">Automático</th>
+            <th class="right">% Asist.</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in carrera.secciones %}
+            <tr>
+              <td>{{ s.sec_nombre }}</td>
+              <td>
+                {{ s.asig_nombre }}
+                {% if s.sede %}<br><small>{{ s.sede }}</small>{% endif %}
+              </td>
+              <td class="right">{{ s.total_clases }}</td>
+              <td class="right">{{ s.manual }}</td>
+              <td class="right">{{ s.automatico }}</td>
+              <td class="right">{{ s.porcentaje }}%</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endfor %}
+  {% endfor %}
+</body>
+</html>

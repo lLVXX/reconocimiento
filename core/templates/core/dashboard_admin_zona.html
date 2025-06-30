@@ -1,0 +1,163 @@
+{% extends "core/base.html" %}
+{% block title %}Dashboard Admin Zona{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+
+  <!-- Contenedor general beige -->
+  <div class="card bg-light shadow-sm">
+    <div class="card-body">
+
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="text-dark">Panel Administrador de Zona</h1>
+        <div class="btn-group">
+          <button type="button"
+                  class="btn btn-outline-secondary dropdown-toggle"
+                  data-bs-toggle="dropdown" aria-expanded="false">
+            📥 Exportar
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li>
+              <a class="dropdown-item"
+                 href="?format=excel{% if selected_carrera %}&carrera={{ selected_carrera }}{% endif %}">
+                🗒️ Excel
+              </a>
+            </li>
+            <li>
+              <a class="dropdown-item"
+                 href="?format=pdf{% if selected_carrera %}&carrera={{ selected_carrera }}{% endif %}">
+                📄 PDF
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Totales generales -->
+      <div class="row g-4 mb-5">
+        <div class="col-md-4">
+          <div class="card bg-primary text-white text-center shadow-sm h-100">
+            <div class="card-body">
+              <h6>Profesores</h6>
+              <p class="display-5">{{ total_profesores }}</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card bg-success text-white text-center shadow-sm h-100">
+            <div class="card-body">
+              <h6>Estudiantes</h6>
+              <p class="display-5">{{ total_estudiantes }}</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card bg-info text-white text-center shadow-sm h-100">
+            <div class="card-body">
+              <h6>Clases Finalizadas</h6>
+              <p class="display-5">{{ total_clases }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Métricas por Carrera -->
+      <div class="card mb-5 shadow-sm">
+        <div class="card-header bg-dark text-white">
+          <h3 class="mb-0">Clases Finalizadas y % Asistencia por Carrera</h3>
+        </div>
+        <div class="card-body">
+          <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+            {% for c in carreras_stats %}
+            <div class="col">
+              <div class="card shadow-sm h-100">
+                <div class="card-body text-center">
+                  <h5 class="card-title">{{ c.nombre }}</h5>
+                  <p class="mb-1"><strong>Clases:</strong> {{ c.clases }}</p>
+                  <p class="mb-2"><strong>% Asistencia:</strong> {{ c.porcentaje }}%</p>
+                  <div class="progress" style="height:0.8rem;">
+                    <div class="progress-bar"
+                         role="progressbar"
+                         style="width:{{ c.porcentaje }}%;"
+                         aria-valuenow="{{ c.porcentaje }}"
+                         aria-valuemin="0"
+                         aria-valuemax="100"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Filtro de Carrera -->
+      <div class="card mb-5 shadow-sm">
+        <div class="card-header bg-dark text-white">
+          <h5 class="mb-0">Filtrar Profesores por Carrera</h5>
+        </div>
+        <div class="card-body">
+          <form method="get" class="row g-2 align-items-center">
+            <div class="col-auto">
+              <label for="carrera" class="form-label">Carrera:</label>
+            </div>
+            <div class="col-auto">
+              <select name="carrera" id="carrera" class="form-select">
+                <option value="">— Todas —</option>
+                {% for ca in carreras %}
+                  <option value="{{ ca.id }}"
+                          {% if selected_carrera == ca.id %}selected{% endif %}>
+                    {{ ca.nombre }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-auto">
+              <button class="btn btn-outline-secondary">Aplicar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Resumen por Profesor -->
+      <div class="card mb-0 shadow-sm">
+        <div class="card-header bg-dark text-white">
+          <h3 class="mb-0">Resumen por Profesor</h3>
+        </div>
+        <div class="card-body">
+          <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+            {% for r in resumen_profs %}
+            <div class="col">
+              <div class="card border-0 shadow h-100">
+                <div class="card-body">
+                  <h5 class="card-title">{{ r.nombre }}</h5>
+                  <ul class="list-unstyled mb-3">
+                    <li><strong>Clases dadas:</strong> {{ r.clases_dadas }}</li>
+                    <li><strong>Estudiantes:</strong> {{ r.estudiantes }}</li>
+                    <li><strong>% Asistencia:</strong> {{ r.porcentaje }}%</li>
+                  </ul>
+                  <div class="progress" style="height:0.8rem;">
+                    <div class="progress-bar"
+                         role="progressbar"
+                         style="width:{{ r.porcentaje }}%;"
+                         aria-valuenow="{{ r.porcentaje }}"
+                         aria-valuemin="0"
+                         aria-valuemax="100">
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {% empty %}
+            <div class="col-12 text-center text-muted">
+              No hay datos de profesores para mostrar.
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

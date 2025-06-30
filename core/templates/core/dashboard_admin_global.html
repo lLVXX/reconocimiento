@@ -1,0 +1,130 @@
+{% extends "core/base.html" %}
+{% block title %}Dashboard Administrador Global{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+
+  <!-- Nav-Pills para filtrar sedes -->
+  <ul class="nav nav-pills mb-4">
+    <li class="nav-item">
+      <a class="nav-link {% if not sede_sel %}active{% endif %}" href="?sede=all">Todas las sedes</a>
+    </li>
+    {% for s in sedes %}
+      <li class="nav-item">
+        <a class="nav-link {% if s == sede_sel %}active{% endif %}" href="?sede={{ s.id }}">
+          {{ s.nombre }}
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+
+  <!-- Título y botón Exportar -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0">
+      Dashboard Global
+      <small class="text-muted">&mdash; {% if sede_sel %}{{ sede_sel.nombre }}{% else %}Todas las sedes{% endif %}</small>
+    </h1>
+    <div class="btn-group">
+      <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+        📥 Exportar
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li>
+          <a class="dropdown-item"
+             href="?sede={% if sede_sel %}{{ sede_sel.id }}{% else %}all{% endif %}&format=pdf">
+            📄 PDF completo
+          </a>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Totales generales -->
+  <div class="row g-4 mb-5">
+    <div class="col-md-3"><div class="card text-white bg-primary text-center h-100">
+      <div class="card-body"><h6>Sedes</h6><p class="display-5">{{ total_sedes }}</p></div>
+    </div></div>
+    <div class="col-md-3"><div class="card text-white bg-success text-center h-100">
+      <div class="card-body"><h6>Carreras</h6><p class="display-5">{{ total_carreras }}</p></div>
+    </div></div>
+    <div class="col-md-3"><div class="card text-white bg-info text-center h-100">
+      <div class="card-body"><h6>Asignaturas</h6><p class="display-5">{{ total_asignaturas }}</p></div>
+    </div></div>
+    <div class="col-md-3"><div class="card text-dark bg-warning text-center h-100">
+      <div class="card-body"><h6>Estudiantes</h6><p class="display-5">{{ total_estudiantes }}</p></div>
+    </div></div>
+  </div>
+
+  <!-- Clases y % asistencia -->
+  <div class="row g-4 mb-5">
+    <div class="col-md-6"><div class="card border-secondary text-center h-100">
+      <div class="card-body"><h5>Clases Finalizadas</h5><p class="display-4">{{ total_clases }}</p></div>
+    </div></div>
+    <div class="col-md-6"><div class="card border-secondary text-center h-100">
+      <div class="card-body"><h5>% Asistencia Total</h5><p class="display-4">{{ pct_global }}%</p></div>
+    </div></div>
+  </div>
+
+  <!-- Métricas por Carrera -->
+  <div class="card mb-5">
+    <div class="card-header bg-dark text-white"><h4 class="mb-0">📊 Por Carrera</h4></div>
+    <div class="card-body">
+      <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for c in carreras_stats %}
+          <div class="col"><div class="card h-100">
+            <div class="card-body text-center">
+              <h5>{{ c.nombre }}</h5>
+              {% if c.sede %}<small class="text-muted">{{ c.sede }}</small>{% endif %}
+              <p><strong>Clases:</strong> {{ c.clases }}</p>
+              <p><strong>%:</strong> {{ c.porcentaje }}%</p>
+              <div class="progress" style="height:.75rem;">
+                <div class="progress-bar bg-info" style="width:{{ c.porcentaje }}%;"></div>
+              </div>
+            </div>
+          </div></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Métricas por Asignatura -->
+  <div class="card mb-5">
+    <div class="card-header bg-dark text-white"><h4 class="mb-0">📚 Por Asignatura</h4></div>
+    <div class="card-body">
+      <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for a in asignaturas_stats %}
+          <div class="col"><div class="card h-100">
+            <div class="card-body text-center">
+              <h5>{{ a.nombre }}</h5>
+              {% if a.sede %}<small class="text-muted">{{ a.sede }}</small>{% endif %}
+              <p><strong>Clases:</strong> {{ a.clases }}</p>
+              <p><strong>%:</strong> {{ a.porcentaje }}%</p>
+              <div class="progress" style="height:.75rem;">
+                <div class="progress-bar bg-success" style="width:{{ a.porcentaje }}%;"></div>
+              </div>
+            </div>
+          </div></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Estudiantes por Carrera -->
+  <div class="card">
+    <div class="card-header bg-dark text-white"><h4 class="mb-0">👥 Estudiantes por Carrera</h4></div>
+    <div class="card-body">
+      <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for e in estudiantes_stats %}
+          <div class="col"><div class="card h-100">
+            <div class="card-body text-center">
+              <h5>{{ e.nombre }}</h5>
+              <p class="display-5">{{ e.alumnos }}</p>
+            </div>
+          </div></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

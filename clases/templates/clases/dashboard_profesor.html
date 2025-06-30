@@ -1,0 +1,118 @@
+{% extends "core/base.html" %}
+{% load dict_extras %}
+
+{% block title %}Dashboard Profesor{% endblock %}
+
+{% block content %}
+<div class="container my-4">
+
+  {# —————————————— Cabecera con Exportar —————————————— #}
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Bienvenido, {{ user.get_full_name }}</h1>
+    <div>
+      <div class="btn-group">
+        <button type="button"
+                class="btn btn-outline-secondary dropdown-toggle"
+                data-bs-toggle="dropdown"
+                aria-expanded="false">
+          📥 Exportar
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li>
+            <a class="dropdown-item"
+               href="?format=excel">
+              🗒️ Excel
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item"
+               href="?format=pdf">
+              📄 PDF
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  {# —————————————— Métricas Principales —————————————— #}
+  <div class="row g-4">
+    <!-- Total de clases -->
+    <div class="col-md-3">
+      <div class="card text-white bg-primary h-100">
+        <div class="card-body text-center">
+          <h5 class="card-title">Clases Totales</h5>
+          <p class="card-text display-6">{{ total_clases }}</p>
+        </div>
+      </div>
+    </div>
+    <!-- Finalizadas -->
+    <div class="col-md-3">
+      <div class="card text-white bg-success h-100">
+        <div class="card-body text-center">
+          <h5 class="card-title">Finalizadas</h5>
+          <p class="card-text display-6">{{ finalizadas }}</p>
+        </div>
+      </div>
+    </div>
+    <!-- Pendientes -->
+    <div class="col-md-3">
+      <div class="card text-white bg-warning h-100">
+        <div class="card-body text-center">
+          <h5 class="card-title">Pendientes</h5>
+          <p class="card-text display-6">{{ pendientes }}</p>
+        </div>
+      </div>
+    </div>
+    <!-- Esta semana -->
+    <div class="col-md-3">
+      <div class="card text-white bg-info h-100">
+        <div class="card-body text-center">
+          <h5 class="card-title">Esta Semana</h5>
+          <p class="card-text display-6">{{ clases_semana }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# —————————————— Gráfica de Asistencia y Próximas Clases —————————————— #}
+  <div class="row mt-4 g-4">
+    <!-- Asistencia promedio -->
+    <div class="col-md-6">
+      <div class="card border-secondary h-100">
+        <div class="card-body">
+          <h5 class="card-title">Asistencia Promedio</h5>
+          <p class="card-text fs-2 text-center">{{ asist_media }}%</p>
+        </div>
+      </div>
+    </div>
+    <!-- Próximas clases -->
+    <div class="col-md-6">
+      <div class="card border-secondary h-100">
+        <div class="card-body">
+          <h5 class="card-title">Próximas Clases</h5>
+          {% if proximas %}
+            <ul class="list-group list-group-flush">
+              {% for inst in proximas %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                  <div>
+                    {{ inst.fecha|date:"d/m/Y" }} {{ inst.fecha|time:"H:i" }} —
+                    {{ inst.version.plantilla.seccion.asignatura.nombre }}
+                  </div>
+                  <a href="{% url 'clases:detalle_instancia' inst.id %}"
+                     class="btn btn-sm btn-outline-primary">
+                    Ver
+                  </a>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="text-muted mb-0">No hay clases próximas.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
