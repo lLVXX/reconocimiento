@@ -21,7 +21,7 @@ import os
 import tempfile
 from django.conf import settings
 from django.core.exceptions import ValidationError
-
+from personas.tasks import procesar_nuevo_estudiante  
 from core.models import CustomUser
 from personas.forms import EstudianteForm
 from personas.models import EstudianteAsignaturaSeccion, EstudianteFoto
@@ -33,7 +33,7 @@ from core.models import CustomUser
 
 import string
 
-
+import base64
 from personas.forms import ProfesorForm, EstudianteForm
 from personas.models import EstudianteAsignaturaSeccion
 from django.contrib.auth.decorators import login_required, user_passes_test
@@ -41,7 +41,7 @@ from django.contrib import messages
 from django.shortcuts import render, redirect, get_object_or_404
 
 import logging
-
+from personas.tasks import recargar_embeddings_microservicio
 from .models import Sede, Carrera, Asignatura, Seccion
 from .forms import SedeForm, CarreraForm, AsignaturaForm, SeccionForm
 
@@ -518,50 +518,49 @@ def resumen_estudiantes_por_seccion(request):
 
 MICRO_URL = settings.ARC_FACE_URL.rstrip('/')
 
+logger = logging.getLogger(__name__)
+
+
+
+
 @login_required
 @admin_zona_required
 def gestionar_estudiantes(request):
-    editar_id    = request.GET.get('editar')
-    carrera_id   = request.GET.get('carrera_id')
+    editar_id = request.GET.get('editar')
+    carrera_id = request.GET.get('carrera_id')
 
-    # 1) POST de eliminación desde el modal
+    # Eliminar estudiante
     if request.method == 'POST' and request.POST.get('eliminar_id'):
         eid = request.POST['eliminar_id']
         CustomUser.objects.filter(id=eid, user_type='estudiante').delete()
         messages.success(request, 'Estudiante eliminado correctamente.')
         return redirect('sedes:gestionar_estudiantes')
 
-    # 2) Crear / editar formulario
+    # Crear o editar formulario
     if editar_id:
-        alumno = get_object_or_404(
-            CustomUser, id=editar_id, user_type='estudiante', sede=request.user.sede
-        )
-        form = EstudianteForm(
-            request.POST or None,
-            request.FILES or None,
-            instance=alumno,
-            user=request.user
-        )
+        alumno = get_object_or_404(CustomUser, id=editar_id, user_type='estudiante', sede=request.user.sede)
+        form = EstudianteForm(request.POST or None, request.FILES or None, instance=alumno, user=request.user)
     else:
         form = EstudianteForm(request.POST or None, request.FILES or None, user=request.user)
 
-    # 3) Procesar POST de creación/edición
+    # Procesar creación/edición
     if request.method == 'POST' and not request.POST.get('eliminar_id'):
         if form.is_valid():
             try:
                 with transaction.atomic():
                     alumno = form.save()
-                    # Generar embedding
+
+                    # ✅ Generar embedding con imagen base
                     img = form.cleaned_data['imagen']
                     img.seek(0)
                     files = {'file': (img.name, img.read(), img.content_type)}
                     resp = requests.post(f"{MICRO_URL}/generar_embedding/", files=files, timeout=15)
                     data = resp.json()
                     if not data.get('ok'):
-                        raise ValidationError(data.get('msg', 'No se detectó rostro.'))
+                        raise ValidationError(data.get('msg', 'No se detectó rostro en la imagen.'))
                     emb = data['embedding']
 
-                    # Reemplazar foto base
+                    # ✅ Guardar como foto base
                     EstudianteFoto.objects.filter(estudiante=alumno, es_base=True).delete()
                     EstudianteFoto.objects.create(
                         estudiante=alumno,
@@ -570,25 +569,27 @@ def gestionar_estudiantes(request):
                         es_base=True
                     )
 
-                    # Asignaciones automáticas (tu lógica existente)
+                    # ✅ Asignar secciones automáticamente
                     for asig in Carrera.objects.get(id=alumno.carrera.id).asignatura_set.all():
-                        seccs = EstudianteAsignaturaSeccion.objects.filter(
-                            estudiante=alumno, asignatura=asig
-                        )
+                        seccs = EstudianteAsignaturaSeccion.objects.filter(estudiante=alumno, asignatura=asig)
                         if not seccs.exists():
-                            # aquí va tu lógica de elección/creación de sección
+                            # Aquí va tu lógica de asignación automática
                             pass
+
+                    # ✅ 🔁 Recargar embeddings vía Celery
+                    recargar_embeddings_microservicio.delay()
 
                 messages.success(request, 'Estudiante guardado y embedding generado.')
                 return redirect('sedes:gestionar_estudiantes')
             except ValidationError as e:
                 messages.error(request, e.message)
             except Exception as e:
+                logger.exception("Error inesperado al guardar estudiante")
                 messages.error(request, f'Error inesperado: {e}')
         else:
             messages.error(request, 'Corrige los errores del formulario.')
 
-    # 4) Listado y filtros
+    # Listar estudiantes
     qs = CustomUser.objects.filter(user_type='estudiante', sede=request.user.sede)
     if carrera_id:
         qs = qs.filter(carrera_id=carrera_id)
@@ -597,28 +598,27 @@ def gestionar_estudiantes(request):
     carreras = Carrera.objects.filter(sede=request.user.sede).order_by('nombre')
     selected_carrera = int(carrera_id) if carrera_id else None
 
-    # Fotos base y asignaciones
+    # Obtener fotos base
     fotos_base = {
         f.estudiante_id: f.imagen.url
         for f in EstudianteFoto.objects.filter(estudiante__in=estudiantes, es_base=True)
     }
+
+    # Obtener asignaciones por estudiante
     rels = EstudianteAsignaturaSeccion.objects.filter(estudiante__in=estudiantes)
     asignaciones = {}
     for r in rels:
-        asignaciones.setdefault(r.estudiante_id, []).append(
-            f"{r.asignatura.nombre}: {r.seccion.nombre}"
-        )
+        asignaciones.setdefault(r.estudiante_id, []).append(f"{r.asignatura.nombre}: {r.seccion.nombre}")
 
     return render(request, 'sedes/gestionar_estudiantes.html', {
-        'form':             form,
-        'estudiantes':      estudiantes,
-        'fotos_base':       fotos_base,
-        'asignaciones':     asignaciones,
-        'editar_id':        editar_id,
-        'carreras':         carreras,
+        'form': form,
+        'estudiantes': estudiantes,
+        'fotos_base': fotos_base,
+        'asignaciones': asignaciones,
+        'editar_id': editar_id,
+        'carreras': carreras,
         'selected_carrera': selected_carrera,
     })
-
 
 
 

@@ -5,6 +5,14 @@
 {% block title %}Detalle de Clase{% endblock %}
 
 {% block content %}
+
+<div id="config"
+     data-ws-url="{{ ws_url }}"
+     data-asistencia-url="{{ asistencia_url }}"
+     data-finish-url="{{ finish_url }}"
+     data-captura-url="{{ captura_url }}">
+</div>
+
 <div class="container my-4">
   <h1>
     Clase: {{ instancia.version.plantilla.seccion.asignatura.nombre }}
@@ -49,166 +57,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-// CSRF helper
-function getCookie(name) {
-  let v = null;
-  document.cookie.split(';').forEach(c => {
-    c = c.trim();
-    if (c.startsWith(name + '=')) v = decodeURIComponent(c.slice(name.length+1));
-  });
-  return v;
-}
-
-const csrftoken     = getCookie('csrftoken');
-const btnTransmitir = document.getElementById('btnTransmitir');
-const btnFinalizar  = document.getElementById('btnFinalizar');
-const video         = document.getElementById('videoFeed');
-const canvas        = document.getElementById('canvasCapture');
-const ctx           = canvas.getContext('2d');
-
-const detected      = new Set();  // IDs ya marcados
-let ws, streaming = false, intervalId;
-
-const wsUrl         = "{{ ws_url }}".replace(/^http/, 'ws');
-const asistenciaUrl = "{{ asistencia_url }}";
-const finishUrl     = "{{ finish_url }}";
-const capturaUrl    = "{{ captura_url }}";
-
-// Envía un frame al WS
-function captureAndSend() {
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  canvas.toBlob(blob => {
-    if (ws?.readyState === WebSocket.OPEN) ws.send(blob);
-  }, 'image/jpeg', 0.7);
-}
-
-// Procesa TODOS los rostros de cada mensaje
-async function onWsMessage(evt) {
-  const faces = JSON.parse(evt.data).faces || [];
-  for (const f of faces) {
-    const id = f.match_id;
-    if (id != null && !detected.has(id)) {
-      detected.add(id);
-
-      // 1) Actualizar UI
-      const card  = document.getElementById(`card-${id}`);
-      const badge = card?.querySelector('.badge');
-      if (badge) {
-        badge.textContent = 'Presente';
-        badge.classList.replace('bg-secondary', 'bg-success');
-      }
-
-      // 2) Registrar asistencia
-      await fetch(asistenciaUrl, {
-        method: 'POST',
-        headers: {
-          'X-CSRFToken': csrftoken,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ estudiante: id })
-      });
-
-      btnFinalizar.disabled = false;
-    }
-  }
-}
-
-// Iniciar / detener streaming
-btnTransmitir.addEventListener('click', async () => {
-  if (!streaming) {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video.srcObject = stream;
-      await video.play();
-
-      ws = new WebSocket(wsUrl);
-      ws.onopen    = () => console.log('WebSocket conectado');
-      ws.onmessage = onWsMessage;
-
-      intervalId = setInterval(captureAndSend, 250);
-      streaming  = true;
-
-      btnTransmitir.textContent = 'Detener transmisión';
-      btnTransmitir.classList.replace('btn-primary', 'btn-warning');
-    } catch (e) {
-      alert('Error cámara: ' + e);
-    }
-  } else {
-    streaming = false;
-    clearInterval(intervalId);
-    ws.close();
-    // dejamos la cámara abierta hasta después de tomar fotos dinámicas
-    btnTransmitir.textContent = 'Iniciar transmisión';
-    btnTransmitir.classList.replace('btn-warning', 'btn-primary');
-  }
-});
-
-// Toggle manual individual
-document.querySelectorAll('.student-card').forEach(card => {
-  card.addEventListener('click', async () => {
-    const id = parseInt(card.id.split('-')[1]);
-    const badge = card.querySelector('.badge');
-    const isPresent = badge.classList.contains('bg-success');
-
-    badge.classList.toggle('bg-success', !isPresent);
-    badge.classList.toggle('bg-secondary', isPresent);
-    badge.textContent = isPresent ? 'No detectado' : 'Presente';
-
-    await fetch(asistenciaUrl, {
-      method: 'POST',
-      headers: {
-        'X-CSRFToken': csrftoken,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        estudiante: id,
-        manual:     true,
-        presente:   !isPresent
-      })
-    });
-
-    btnFinalizar.disabled = false;
-  });
-});
-
-// Finalizar clase: tomar fotos dinámicas, luego detener cámara y enviar finish
-btnFinalizar.addEventListener('click', async () => {
-  // Si aún sigue el streaming, para el envío de frames / WS
-  if (streaming) {
-    clearInterval(intervalId);
-    ws.close();
-    streaming = false;
-  }
-
-  // Para cada estudiante detectado, tomo snapshot y envío foto dinámica
-  for (const id of detected) {
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imgB64 = canvas.toDataURL('image/jpeg', 0.8);
-    await fetch(capturaUrl, {
-      method: 'POST',
-      headers: {
-        'X-CSRFToken': csrftoken,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ estudiante_id: id, imagen_b64: imgB64 })
-    });
-  }
-
-  // Ahora sí detengo la cámara
-  video.srcObject.getTracks().forEach(t => t.stop());
-
-  // Finalmente cierro la clase en el servidor y navego al reporte
-  const resp = await fetch(finishUrl, {
-    method: 'POST',
-    headers: { 'X-CSRFToken': csrftoken }
-  });
-  const json = await resp.json();
-  if (json.ok) {
-    window.location.href = json.url_reporte;
-  } else {
-    alert('Error al finalizar la clase');
-  }
-});
-</script>
+<script src="{% static 'clases/js/detalle_instancia.js' %}"></script>
 {% endblock %}

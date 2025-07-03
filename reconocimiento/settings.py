@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -36,10 +37,24 @@ ARC_FACE_WS  = "http://localhost:8001"
 
 
 # Celery
-CELERY_BROKER_URL = 'amqp://guest:guest@localhost:5672//'
-CELERY_RESULT_BACKEND = 'django-db'  # opcional, para almacenar resultados en BD
 
-CELERY_TASK_ALWAYS_EAGER = False  
+
+
+
+CELERY_BROKER_URL = 'amqp://guest:guest@localhost:5672//'
+CELERY_RESULT_BACKEND = 'django-db'  # Esto es correcto si estás usando django_celery_results
+CELERY_TASK_ALWAYS_EAGER = False
+
+
+
+CELERY_RESULT_EXTENDED = True
+CELERY_CACHE_BACKEND = 'default'
+
+
+
+
+
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -113,10 +128,14 @@ DATABASES = {
         'NAME': 'SCOUT_DB',
         'USER': 'postgres',
         'PASSWORD': '12345678',
-        'HOST': 'db',
+        'HOST': 'localhost',
         'PORT': '5432',  # Puerto por defecto de PostgreSQL
     }
 }
+
+
+
+
 
 
 
@@ -175,3 +194,8 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+
+
+

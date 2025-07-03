@@ -72,6 +72,8 @@ def generar_nombre_seccion(asignatura):
             if nombre not in existentes:
                 return nombre
 
+
+
 class EstudianteForm(forms.ModelForm):
     imagen = forms.ImageField(
         required=True,
@@ -91,9 +93,19 @@ class EstudianteForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         self.user = kwargs.pop('user', None)
+        sede = kwargs.pop('sede', None)  # <- ACEPTAMOS 'sede' de kwargs
         super().__init__(*args, **kwargs)
-        if self.user:
+
+        # Preferimos sede explícita, si no existe usamos la del usuario
+        if sede:
+            self.fields['carrera'].queryset = Carrera.objects.filter(sede=sede)
+            self._sede_final = sede
+        elif self.user:
             self.fields['carrera'].queryset = Carrera.objects.filter(sede=self.user.sede)
+            self._sede_final = self.user.sede
+        else:
+            self.fields['carrera'].queryset = Carrera.objects.none()
+            self._sede_final = None
 
     def clean_imagen(self):
         img = self.cleaned_data.get('imagen')
@@ -104,7 +116,7 @@ class EstudianteForm(forms.ModelForm):
     def save(self, commit=True):
         estudiante = super().save(commit=False)
         estudiante.user_type = 'estudiante'
-        estudiante.sede = self.user.sede
+        estudiante.sede = self._sede_final  # <- Usamos la sede detectada en __init__
         estudiante.carrera = self.cleaned_data['carrera']
 
         # Genera username & email
@@ -115,7 +127,7 @@ class EstudianteForm(forms.ModelForm):
         estudiante.email = correo
         estudiante.username = correo
 
-        # Password por defecto
+        # Password por defecto si es nuevo
         if not self.instance.pk:
             estudiante.set_password('12345678')
 
@@ -123,6 +135,8 @@ class EstudianteForm(forms.ModelForm):
             estudiante.save()
             self.save_m2m()
         return estudiante
+    
+    
 # ------------------------------------------------------------
 # Formularios auxiliares para CRUD
 # ------------------------------------------------------------

@@ -1,16 +1,23 @@
-# reconocimiento/celery.py
-from __future__ import absolute_import, unicode_literals
 import os
 from celery import Celery
 
-# 1) le digo a Django dónde están los settings
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'reconocimiento.settings')
+# Configuración de entorno Django
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "reconocimiento.settings")
 
-# 2) instancio la app de Celery
-app = Celery('reconocimiento')
+# Crear instancia Celery
+app = Celery("reconocimiento")
+app.config_from_object("django.conf:settings", namespace="CELERY")
 
-# 3) cargo la configuración desde Django settings (prefijos CELERY_)
-app.config_from_object('django.conf:settings', namespace='CELERY')
-
-# 4) autodetecta tasks.py en cada app instalada
+# Auto-descubrir tareas de todas las apps
 app.autodiscover_tasks()
+
+
+
+
+
+
+
+##############################################################################
+
+
+

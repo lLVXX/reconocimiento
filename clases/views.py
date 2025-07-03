@@ -2,11 +2,14 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.http import JsonResponse
 import pandas as pd
+from django.core.files.base import ContentFile
+import base64
+import os
+from django.utils.timezone import now
+from personas.models import EstudianteFoto
 from django.utils import timezone
-from django.db import transaction
 from django.template.loader import render_to_string
 from django.db.models import F
-from django.forms import HiddenInput
 from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib import messages
@@ -15,7 +18,6 @@ from django.db.models     import Count
 from core.decorators import admin_zona_required, admin_global_required, profesor_required
 from core.models import CustomUser, SemanaAcademica
 from django.http import JsonResponse, HttpResponseBadRequest
-from django.core.exceptions import ValidationError
 from personas.models import EstudianteFoto
 from django.middleware.csrf import get_token
 from django.core.files.uploadedfile import InMemoryUploadedFile
@@ -23,12 +25,12 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Avg, F, Q
 from django.http import HttpResponse
 
-
+import logging
 from xhtml2pdf import pisa           # <<< sólo xhtml2pdf
 
 
-
-from sedes.models import Sede, Carrera, Asignatura, Seccion
+from personas.tasks import guardar_imagen_dinamica_post_clase
+from sedes.models import Asignatura, Seccion
 from personas.models import EstudianteAsignaturaSeccion, EstudianteAsignaturaSeccion
 
 from .models import (
@@ -42,21 +44,21 @@ from .models import (
     HistorialAsistenciaClase,
 )
 
-
-
 from .forms import BloqueHorarioForm, AulaForm, ClaseForm
-
 from collections import defaultdict
-import io, json, base64, requests
-from datetime import timedelta
+import io, json
 from django.conf import settings
-from django.db import transaction
+from personas.tasks import guardar_imagen_dinamica_post_clase
+from personas.models import EstudianteFoto
+
+
+
 # ========== CONFIGURACIÓN ARC FACE ==========
 ARCFACE_URL = "http://localhost:8001/match_faces/"
 
 
 
-
+logger = logging.getLogger('clases')
 
 # Después de todos tus imports, añade:
 DIAS_SEMANA = [
@@ -496,6 +498,7 @@ def horario_profesor(request):
 @profesor_required
 def detalle_instancia(request, inst_id):
     # Definición de URLs AJAX / WS al inicio
+    
     asistencia_url = reverse('clases:asistencia_live', args=[inst_id])
     finish_url     = reverse('clases:finalizar_clase', args=[inst_id])
     captura_url    = reverse('personas:capturar_foto')
@@ -568,13 +571,16 @@ def detalle_instancia(request, inst_id):
 @csrf_exempt
 def asistencia_live(request, inst_id):
     if request.method != 'POST':
+        print(f"[ASISTENCIA_LIVE] Método no permitido: {request.method}")
         return HttpResponseBadRequest('Only POST allowed')
     try:
         payload  = json.loads(request.body)
         est_id   = payload['estudiante']
         manual   = bool(payload.get('manual', False))
         presente = bool(payload.get('presente', True))
+        print(f"[ASISTENCIA_LIVE] Recibido: estudiante={est_id}, manual={manual}, presente={presente}")
     except (ValueError, KeyError):
+        
         return JsonResponse({'ok': False, 'error': 'JSON inválido'}, status=400)
 
     instancia  = get_object_or_404(ClaseInstancia, id=inst_id)
@@ -612,9 +618,7 @@ def finalizar_clase(request, inst_id):
         raise PermissionDenied
 
     # 1) Obtener todos los estudiantes de la sección
-    estudiantes = instancia.version.plantilla.seccion.estudiantes.filter(
-        user_type='estudiante'
-    )
+    estudiantes = instancia.version.plantilla.seccion.estudiantes.filter(user_type='estudiante')
 
     # 2) Crear ausencias automáticas donde no exista registro
     faltantes = []
@@ -628,35 +632,60 @@ def finalizar_clase(request, inst_id):
             faltantes.append(obj)
 
     # 3) Contar asistentes y ausentes
-    total_presentes = AsistenciaClase.objects.filter(
-        instancia=instancia, presente=True
-    ).count()
-    total_ausentes = AsistenciaClase.objects.filter(
-        instancia=instancia, presente=False
-    ).count()
+    total_presentes = AsistenciaClase.objects.filter(instancia=instancia, presente=True).count()
+    total_ausentes = AsistenciaClase.objects.filter(instancia=instancia, presente=False).count()
 
-    # 4) Registrar auditoría (campo evento sólo texto)
-    evento_txt = f"Clase finalizada: {total_presentes} presentes, {total_ausentes} ausentes."
+    # 4) Registrar auditoría
     AuditoriaAsistencia.objects.create(
         instancia=instancia,
-        evento=evento_txt
+        evento=f"Clase finalizada: {total_presentes} presentes, {total_ausentes} ausentes."
     )
 
-    # 5) (Opcional) Historial detallado de las ausencias recién creadas
+    # 5) Historial de ausencias
     for ausencia in faltantes:
         HistorialAsistenciaClase.objects.create(
             asistencia=ausencia,
-            cambio='Creada como ausente',
+            cambio='Creada como ausente'
         )
 
-    # 6) Marcar como finalizada
+    # 6) Enviar tareas Celery por cada asistente presente
+    asistencias = AsistenciaClase.objects.filter(instancia=instancia, presente=True)
+    for asistencia in asistencias:
+        estudiante = asistencia.estudiante
+
+        # Buscar la última foto dinámica (no base)
+        foto = EstudianteFoto.objects.filter(estudiante=estudiante, es_base=False).order_by('-created_at').first()
+        if not foto:
+            print(f"⚠️ No se encontró imagen dinámica para estudiante {estudiante.id}")
+            continue
+
+        try:
+            # Construir ruta absoluta
+            ruta_foto = os.path.normpath(os.path.join(settings.MEDIA_ROOT, str(foto.imagen)))
+
+            # Leer imagen
+            with open(ruta_foto, 'rb') as f:
+                imagen_bytes = f.read()
+
+            # Extraer embedding si existe
+            embedding = foto.embedding if foto.embedding else []
+            if not embedding:
+                print(f"⚠️ Embedding vacío para estudiante {estudiante.id}, se omite.")
+                continue
+
+            # Enviar tarea Celery
+            guardar_imagen_dinamica_post_clase.delay(estudiante.id, embedding, imagen_bytes)
+            print(f"📦 Enviada tarea post-clase a Celery para estudiante {estudiante.id}")
+
+        except Exception as e:
+            print(f"❌ Error al procesar estudiante {estudiante.id}: {e}")
+
+    # 7) Marcar como finalizada
     instancia.finalizada = True
     instancia.save(update_fields=['finalizada'])
 
     url_reporte = reverse('clases:reporte_instancia', args=[inst_id])
     return JsonResponse({'ok': True, 'url_reporte': url_reporte})
-
-
 
 @login_required
 @profesor_required
@@ -956,3 +985,62 @@ def dashboard_profesor(request):
         'asist_media':   round(asist_media, 2),
         'proximas':      proximas,
     })
+
+
+
+
+
+
+
+@csrf_exempt  # Si estás usando CSRF en producción, mejor proteger con @login_required y csrf_token
+@require_POST
+def capturar_foto(request):
+    """
+    Recibe una imagen en base64 desde el cliente (JS), la guarda como ImageField
+    y aplica política FIFO (solo se guardan las últimas 3 por estudiante).
+    """
+    try:
+        # Parseamos JSON recibido
+        data = json.loads(request.body)
+        estudiante_id = data.get('estudiante_id')
+        imagen_b64 = data.get('imagen_b64')
+
+        if not estudiante_id or not imagen_b64:
+            return JsonResponse({"ok": False, "msg": "Datos incompletos"}, status=400)
+
+        # Decodificamos la imagen base64 → bytes
+        format, imgstr = imagen_b64.split(';base64,')  # ej: data:image/jpeg;base64,...
+        ext = format.split('/')[-1]  # jpeg
+        img_bytes = base64.b64decode(imgstr)
+
+        # Convertimos a archivo Django-compatible
+        file_name = f"dinamica_{now().strftime('%Y%m%d%H%M%S')}.{ext}"
+        django_file = ContentFile(img_bytes, name=file_name)
+
+        # Creamos instancia de EstudianteFoto
+        nueva_foto = EstudianteFoto.objects.create(
+            estudiante_id=estudiante_id,
+            imagen=django_file,
+            es_base=False,
+            created_at=now()
+        )
+
+        print(f"📸 Nueva imagen dinámica guardada para estudiante {estudiante_id}")
+
+        # Aplicamos política FIFO: si hay más de 3 fotos dinámicas, borramos la más antigua
+        fotos_dinamicas = EstudianteFoto.objects.filter(
+            estudiante_id=estudiante_id,
+            es_base=False
+        ).order_by('created_at')
+
+        if fotos_dinamicas.count() > 3:
+            for extra in fotos_dinamicas[:-3]:  # mantenemos las 3 más recientes
+                print(f"🗑️ Eliminando imagen antigua {extra.imagen.name}")
+                extra.imagen.delete(save=False)  # borra el archivo del sistema
+                extra.delete()  # borra la fila de la base de datos
+
+        return JsonResponse({"ok": True, "msg": "Foto dinámica guardada exitosamente"})
+
+    except Exception as e:
+        print(f"❌ Error en capturar_foto: {e}")
+        return JsonResponse({"ok": False, "msg": str(e)}, status=500)

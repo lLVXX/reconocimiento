@@ -29,6 +29,9 @@ urlpatterns = [
     path('',views.listado_instancias,name='listado_instancias'),
     path('historial/', views.listado_instancias, name='historial_instancias'),
 
+    path('capturar_foto/',views.capturar_foto, name='capturar_foto'),
+
+
 ]
 
 

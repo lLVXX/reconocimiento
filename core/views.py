@@ -669,3 +669,7 @@ def exportar_dashboard_pdf(request):
 
     pisa.CreatePDF(html, dest=response)
     return response
+
+
+
+

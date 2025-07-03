@@ -1,6 +1,8 @@
 # PERSONAS/MODELS.PY
 
 from django.db import models
+from pgvector.django import VectorField
+from django.utils.timezone import now
 from core.models import CustomUser
 from sedes.models import Asignatura, Seccion, Carrera
 from django.core.exceptions import ValidationError
@@ -49,6 +51,7 @@ class EstudianteFoto(models.Model):
     embedding     = VectorField(dimensions=512, blank=True, null=True)
     es_base       = models.BooleanField(default=False)
     created_at    = models.DateTimeField(auto_now_add=True)
+    
 
     class Meta:
         ordering = ['-es_base', '-created_at']
@@ -65,3 +68,26 @@ class EstudianteFoto(models.Model):
     def __str__(self):
         flag = 'BASE' if self.es_base else 'DINÁMICA'
         return f"{self.estudiante.username} – {flag} @ {self.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
+
+
+
+
+
+
+class EstudianteEmbedding(models.Model):
+    estudiante = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='embeddings'
+    )
+    embedding = VectorField(dimensions=512)
+    origen = models.CharField(
+        max_length=20,
+        choices=[("base", "Base"), ("dinamica", "Dinámica")],
+        default="base"
+    )
+    imagen = models.CharField(max_length=255)  # Guardamos el path relativo
+    timestamp = models.DateTimeField(default=now)
+
+    def __str__(self):
+        return f"{self.estudiante.username} – {self.origen.upper()} – {self.timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
